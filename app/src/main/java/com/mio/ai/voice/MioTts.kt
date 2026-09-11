@@ -198,10 +198,14 @@ class MioTts(private val context: Context) {
         .trim()
         .take(1500)
 
+    /** Split on sentence boundaries, keeping the delimiter with the sentence. */
+    private fun splitSentences(text: String): List<String> =
+        text.split(Regex("(?<=[.!?;])\\s+")).map { it.trim() }.filter { it.isNotEmpty() }
+
     /** Split into speakable chunks (~200 chars) on sentence boundaries. */
     private fun chunk(text: String, maxLen: Int = 220): List<String> {
         if (text.length <= maxLen) return listOf(text)
-        val sentences = text.splitAfter('.', '!', '?', ';').map { it.trim() }.filter { it.isNotEmpty() }
+        val sentences = splitSentences(text)
         val out = ArrayList<String>()
         val current = StringBuilder()
         for (s in sentences) {
