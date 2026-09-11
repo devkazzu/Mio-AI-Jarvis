@@ -235,7 +235,7 @@ fun MioDropdown(
             ExposedDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
-                modifier = androidx.compose.foundation.layout.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 DropdownMenuItem(
                     text = { Text(placeholder, style = MioTypography.bodyLarge) },

@@ -77,7 +77,7 @@ fun MioOrb(
             .clip(CircleShape)
             .clickable(role = Role.Button, onClickLabel = "Talk to Mio") { onTap() },
     ) {
-        val d = size.minDimension
+        val d = this.size.minDimension // DrawScope size in px (param `size` is Dp)
         val c = Offset(d / 2f, d / 2f)
 
         // Soft aura (scaled by accent intensity).

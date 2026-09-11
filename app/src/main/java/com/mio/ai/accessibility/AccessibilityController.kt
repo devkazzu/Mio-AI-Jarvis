@@ -110,9 +110,10 @@ object AccessibilityController {
                 }.getOrDefault(false)
                 if (ok && submit) {
                     delay(300)
-                    // Best-effort IME "search/go/enter". Not every field exposes it —
-                    // the engine reports the typed text either way.
-                    runCatching { target.performAction(AccessibilityNodeInfo.ACTION_IME_ENTER) }
+                    // No public IME-action API exists for accessibility services:
+                    // fall back to tapping a visible Search/Go/Send/Done
+                    // affordance (best effort — the text stays typed either way).
+                    tapImeAction()
                     delay(300)
                 }
                 runCatching { target.recycle() }

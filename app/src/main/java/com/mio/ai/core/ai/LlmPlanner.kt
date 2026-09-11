@@ -50,10 +50,12 @@ class LlmPlanner(private val client: AiClient) {
         }
     }
 
+    private fun systemPrompt(): String = "$SYSTEM\n${ResponseStyle.instruction(style)}"
+
     companion object {
         /**
          * Strict contract prompt. Kept short so it works with small local models too.
-         * The allowlist mirrors [LlmPlanParser.TYPES].
+         * The allowlist mirrors the types accepted in [LlmPlanParser.toAction].
          */
         const val SYSTEM = """
 You are Mio, a phone assistant. Answer with ONLY one JSON object, no markdown, no extra text.
