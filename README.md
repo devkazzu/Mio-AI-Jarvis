@@ -72,22 +72,24 @@ Covers the command parser (30+ utterances), LLM plan validation, JSON codec and 
 Mio works **fully offline** out of the box (rule parser + personality brain). For open-ended
 conversation and LLM-planned actions, point it at any OpenAI-compatible endpoint:
 
-**Option A — developer machine** (`local.properties`, git-ignored):
+**Defaults** (non-secret, `local.properties` → build config, git-ignored):
 
 ```properties
 MIO_AI_BASE_URL=https://api.openai.com/v1
-MIO_AI_API_KEY=sk-…
 MIO_AI_MODEL=gpt-4o-mini
 ```
 
-**Option B — in the app** (Settings → AI Brain): base URL + model (DataStore) and API key
-(encrypted with `EncryptedSharedPreferences`). In-app values override `local.properties`.
+**API key — in the app only** (Settings → AI): your key is kept in encrypted
+on-device storage (`EncryptedSharedPreferences`) and is never baked into the APK.
+In-app URL/model values override the build defaults. Only a masked hint
+(`sk-••••1234`) is ever displayed.
 
-**Option C — free local LLM** (no key at all): run Ollama on your computer, then in the *emulator*
+**Free local LLM** (no key at all): run Ollama on your computer, then in the *emulator*
 set base URL `http://10.0.2.2:11434/v1`, model `llama3.1` (or any pulled model), empty key.
 (Cleartext is allow-listed for emulator loopback only — see `network_security_config.xml`.)
 
-The HUD footer always shows which brain is active: `Offline brain` vs `Cloud brain · model · host`.
+Home and Settings always show the same brain state: `OFFLINE BRAIN`, `CLOUD BRAIN`,
+`CLOUD SETUP REQUIRED`, or `CLOUD BRAIN ERROR`.
 
 ---
 

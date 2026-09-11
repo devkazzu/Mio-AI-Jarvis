@@ -3,10 +3,10 @@ package com.mio.ai.core.ai
 /**
  * Pure validation for the Settings → AI endpoint fields.
  *
- * Rules mirror [OpenAiCompatibleClient]'s expectations: blank Base URL means
- * "fully offline" (valid), otherwise it must be an http(s) URL with a host —
- * and must NOT already contain `/chat/completions`, which the client appends
- * itself. Blank Model means "saved/default model" (valid).
+ * Rules mirror [OpenAiCompatibleClient]'s expectations: a blank Base URL means
+ * "use the default endpoint" (valid), otherwise it must be an http(s) URL
+ * with a host — and must NOT already contain `/chat/completions`, which the
+ * client appends itself. Blank Model means "saved/default model" (valid).
  *
  * Each function returns a user-facing error message, or null when valid.
  * Pure JVM code (no Android APIs) so it is unit-testable.
@@ -15,7 +15,7 @@ object EndpointValidation {
 
     fun baseUrlError(raw: String): String? {
         val v = raw.trim()
-        if (v.isEmpty()) return null // Empty = offline mode.
+        if (v.isEmpty()) return null // Empty = default endpoint.
         if (v.any { it.isWhitespace() }) return "Base URL can't contain spaces."
         if (v.endsWith("/chat/completions", ignoreCase = true)) {
             return "End at /v1 — Mio adds /chat/completions itself."

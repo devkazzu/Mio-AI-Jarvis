@@ -26,8 +26,9 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        buildConfigField("String", "MIO_AI_BASE_URL", "\"${mioProp("MIO_AI_BASE_URL", "")}\"")
-        buildConfigField("String", "MIO_AI_API_KEY", "\"${mioProp("MIO_AI_API_KEY", "")}\"")
+        // BuildConfig carries ONLY non-secret defaults. The API key lives solely in
+        // encrypted in-app storage (Settings → AI) — it must never be baked into the APK.
+        buildConfigField("String", "MIO_AI_BASE_URL", "\"${mioProp("MIO_AI_BASE_URL", "https://api.openai.com/v1")}\"")
         buildConfigField("String", "MIO_AI_MODEL", "\"${mioProp("MIO_AI_MODEL", "gpt-4o-mini")}\"")
     }
 

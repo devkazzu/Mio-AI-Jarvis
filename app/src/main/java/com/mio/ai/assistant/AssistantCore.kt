@@ -1,6 +1,11 @@
 package com.mio.ai.assistant
 
+import com.mio.ai.BuildConfig
 import com.mio.ai.MioApplication
+import com.mio.ai.core.ai.BrainState
+import com.mio.ai.core.ai.BrainStatus
+import com.mio.ai.core.ai.BrainStatusResolver
+import com.mio.ai.core.ai.CloudBrainConfig
 import com.mio.ai.ui.vm.AssistantStatus
 import com.mio.ai.ui.vm.ChatEntry
 import com.mio.ai.ui.vm.EntryKind
@@ -78,8 +83,12 @@ class AssistantCore(private val app: MioApplication) {
     private val _pendingPlan = MutableStateFlow<Plan?>(null)
     val pendingPlan: StateFlow<Plan?> = _pendingPlan.asStateFlow()
 
-    private val _cloudLabel = MutableStateFlow("Offline brain")
-    val cloudLabel: StateFlow<String> = _cloudLabel.asStateFlow()
+    /** Last cloud failure (null after success / when offline). Drives CLOUD ERROR. */
+    private val _brainError = MutableStateFlow<String?>(null)
+
+    /** The ONE brain state — Home and Settings render this same object. */
+    private val _brainState = MutableStateFlow(BrainState(BrainStatus.OFFLINE, "Cloud brain is off"))
+    val brainState: StateFlow<BrainState> = _brainState.asStateFlow()
 
     private val _ttsVoices = MutableStateFlow<List<String>>(emptyList())
     val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
@@ -107,10 +116,11 @@ class AssistantCore(private val app: MioApplication) {
             settings.collect { s ->
                 tts.setRatePitch(s.speechRate, s.speechPitch)
                 if (s.ttsVoiceName.isNotBlank()) tts.setVoiceByName(s.ttsVoiceName)
-                val ai = app.resolveAi(s)
-                _cloudLabel.value =
-                    if (ai.planner != null) "Cloud brain · ${ai.client.describe}" else "Offline brain"
+                updateBrainState(s, _brainError.value)
             }
+        }
+        scope.launch {
+            _brainError.collect { updateBrainState(settings.value, it) }
         }
     }
 
@@ -222,6 +232,25 @@ class AssistantCore(private val app: MioApplication) {
         _ttsVoices.value = tts.englishVoiceNames()
     }
 
+    /** Re-resolve brain state (call after API-key save/clear — not in DataStore). */
+    fun refreshBrainState() {
+        updateBrainState(settings.value, _brainError.value)
+    }
+
+    private fun updateBrainState(s: MioSettings, error: String?) {
+        val eff = CloudBrainConfig.effective(
+            s.aiBaseUrlOverride, s.aiModelOverride,
+            BuildConfig.MIO_AI_BASE_URL, BuildConfig.MIO_AI_MODEL,
+        )
+        _brainState.value = BrainStatusResolver.resolve(
+            useCloud = s.useCloudAi,
+            baseUrl = eff.baseUrl,
+            model = eff.model,
+            hasKey = app.secureKeys.hasApiKey(),
+            lastError = error,
+        )
+    }
+
     // ------------------------------------------------------------------ router
 
     private fun handleUtterance(text: String) {
@@ -246,6 +275,9 @@ class AssistantCore(private val app: MioApplication) {
         } catch (e: Exception) {
             CommandRouter.Decision.Say("My router glitched (${e.message}). Try again?")
         }
+        // Surface cloud failures as brain state (sticky until the next
+        // cloud success) instead of silently answering offline.
+        _brainError.value = runtime.router.planner?.lastFailure
 
         // An execution is running: only "stop" (or no) interrupts it.
         if (executionActive()) {

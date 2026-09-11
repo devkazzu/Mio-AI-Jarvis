@@ -6,8 +6,10 @@
 
 # --- Mio AI cloud brain (OpenAI-compatible Chat Completions) ---
 # Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, Ollama, LM Studio,
-# OpenRouter, Together, Groq...). Leave blank to run fully offline with the
-# built-in local brain (commands + personality replies still work).
+# OpenRouter, Together, Groq...). These are non-secret build defaults — the
+# Settings screen can override them at runtime.
 MIO_AI_BASE_URL=https://api.openai.com/v1
-MIO_AI_API_KEY=
 MIO_AI_MODEL=gpt-4o-mini
+#
+# API keys are NEVER configured here. Enter your key in the app (Settings →
+# AI); it is kept in encrypted on-device storage and never baked into the APK.

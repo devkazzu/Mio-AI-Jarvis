@@ -85,7 +85,7 @@ fun HomeScreen(
     val partial by vm.partial.collectAsStateWithLifecycle()
     val rms by vm.rms.collectAsStateWithLifecycle()
     val ticker by vm.ticker.collectAsStateWithLifecycle()
-    val cloudLabel by vm.cloudLabel.collectAsStateWithLifecycle()
+    val brain by vm.brainState.collectAsStateWithLifecycle()
     val a11yOn by vm.a11yConnected.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
@@ -114,7 +114,7 @@ fun HomeScreen(
     val statusDetail = when {
         status == AssistantStatus.LISTENING && partial.isNotBlank() -> "“$partial”"
         ticker != null -> ticker
-        else -> cloudLabel
+        else -> brain.detail
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -149,7 +149,7 @@ fun HomeScreen(
                         )
                     }
                     Text(
-                        (if (a11yOn) "UI CONTROL ON · " else "") + cloudLabel.uppercase(),
+                        (if (a11yOn) "UI CONTROL ON · " else "") + brain.label,
                         style = CaptionMono,
                         color = mio.textMuted,
                     )

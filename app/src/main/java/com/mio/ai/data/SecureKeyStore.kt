@@ -11,11 +11,14 @@ import androidx.security.crypto.MasterKey
  * EncryptedSharedPreferences — key material never touches disk in cleartext.
  *
  * The stored key is write-only from the UI's perspective: it is read only to
- * build the `Authorization` header, never for display, logging, or diagnostics.
+ * build the `Authorization` header, never for display, logging, or diagnostics
+ * (Settings shows only [maskedHint]). It is the SOLE credential source for
+ * the cloud brain — no key ever lives in source, resources, or build config.
  *
- * Priority for the cloud brain credentials:
- *  1. In-app override (this store) — set in Settings → AI.
- *  2. BuildConfig values from local.properties (developer machine).
+ * Honest limitation: this protects the key at rest on the user's own device.
+ * Anyone the user shares a configured device (or a backup) with could use
+ * the key — for a distributed app, route AI through a first-party backend
+ * proxy instead (see [com.mio.ai.core.ai.AiClient]).
  */
 class SecureKeyStore(context: Context) {
 
@@ -45,6 +48,17 @@ class SecureKeyStore(context: Context) {
     }
 
     fun hasApiKey(): Boolean = getApiKey().isNotBlank()
+
+    /**
+     * Display-only hint for Settings ("sk-••••1234"). The full key is never
+     * exposed for display — this reveals just enough to confirm which key.
+     */
+    fun maskedHint(): String {
+        val k = getApiKey()
+        if (k.isBlank()) return "not set"
+        if (k.length < 8) return "••••"
+        return "${k.take(3)}••••${k.takeLast(4)}"
+    }
 
     companion object {
         private const val KEY_API = "ai_api_key"

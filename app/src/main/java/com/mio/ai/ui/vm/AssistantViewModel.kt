@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.mio.ai.MioApplication
 import com.mio.ai.assistant.AssistantService
 import com.mio.ai.core.actions.Plan
+import com.mio.ai.core.ai.BrainState
 import com.mio.ai.data.MioSettings
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -69,7 +70,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     val rms: StateFlow<Float> = core.rms
     val ticker: StateFlow<String?> = core.ticker
     val pendingPlan: StateFlow<Plan?> = core.pendingPlan
-    val cloudLabel: StateFlow<String> = core.cloudLabel
+    val brainState: StateFlow<BrainState> = core.brainState
     val ttsVoices: StateFlow<List<String>> = core.ttsVoices
 
     /** True while the background foreground-service is actually running. */
@@ -90,6 +91,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     fun speakMessage(text: String) = core.speakMessage(text)
 
     fun refreshVoices() = core.refreshVoices()
+
+    fun refreshBrainState() = core.refreshBrainState()
 
     fun confirmPending() = core.confirmPending()
 

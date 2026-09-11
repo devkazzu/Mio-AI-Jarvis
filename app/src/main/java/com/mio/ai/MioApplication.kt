@@ -2,6 +2,7 @@ package com.mio.ai
 
 import android.app.Application
 import com.mio.ai.core.ai.AiClient
+import com.mio.ai.core.ai.CloudBrainConfig
 import com.mio.ai.core.ai.ConversationStore
 import com.mio.ai.core.ai.LlmPlanner
 import com.mio.ai.core.ai.OpenAiCompatibleClient
@@ -41,11 +42,14 @@ class MioApplication : Application() {
     val assistant by lazy { AssistantCore(this) }
 
     fun resolveAi(settings: MioSettings): AiRuntime {
-        val baseUrl = settings.aiBaseUrlOverride.ifBlank { BuildConfig.MIO_AI_BASE_URL }
-        val model = settings.aiModelOverride.ifBlank { BuildConfig.MIO_AI_MODEL }
-        val apiKey = secureKeys.getApiKey().ifBlank { BuildConfig.MIO_AI_API_KEY }
-        val client = OpenAiCompatibleClient(baseUrl, apiKey, model)
-        val planner = if (settings.useCloudAi && client.isConfigured) {
+        // Effective config: user overrides win, build defaults fill blanks.
+        // The API key comes ONLY from encrypted storage — never build config.
+        val eff = CloudBrainConfig.effective(
+            settings.aiBaseUrlOverride, settings.aiModelOverride,
+            BuildConfig.MIO_AI_BASE_URL, BuildConfig.MIO_AI_MODEL,
+        )
+        val client = OpenAiCompatibleClient(eff.baseUrl, secureKeys.getApiKey(), eff.model)
+        val planner = if (CloudBrainConfig.isReady(settings.useCloudAi, eff, secureKeys.hasApiKey())) {
             LlmPlanner(client, settings.responseStyle)
         } else {
             null

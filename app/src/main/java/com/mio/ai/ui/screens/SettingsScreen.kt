@@ -57,6 +57,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mio.ai.BuildConfig
 import com.mio.ai.MioApplication
+import com.mio.ai.core.ai.CloudBrainConfig
 import com.mio.ai.core.ai.EndpointValidation
 import com.mio.ai.core.ai.OpenAiCompatibleClient
 import com.mio.ai.core.ai.PingResult
@@ -117,7 +118,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val cloudLabel by vm.cloudLabel.collectAsStateWithLifecycle()
+    val brain by vm.brainState.collectAsStateWithLifecycle()
     val voices by vm.ttsVoices.collectAsStateWithLifecycle()
     val a11yOn by vm.a11yConnected.collectAsStateWithLifecycle()
 
@@ -137,6 +138,7 @@ fun SettingsScreen(
     var showClearKeyDialog by remember { mutableStateOf(false) }
     var nickname by remember(settings.nickname) { mutableStateOf(settings.nickname.orEmpty()) }
     val keyStored = remember(keyTick) { app.secureKeys.hasApiKey() }
+    val keyHint = remember(keyTick) { app.secureKeys.maskedHint() }
 
     // Cloud off always reads Offline (unless a test is mid-flight).
     val effectiveConn = if (!settings.useCloudAi && connState !is ConnState.Connecting) {
@@ -151,23 +153,24 @@ fun SettingsScreen(
         urlError = urlErr
         modelError = modelErr
         if (urlErr != null || modelErr != null) return
-        val base = url.trim().ifBlank { settings.aiBaseUrlOverride.ifBlank { BuildConfig.MIO_AI_BASE_URL } }
-        if (base.isBlank()) {
+        // Typed values win so users can verify before saving; blanks fall
+        // back to saved values, then to the build defaults.
+        val eff = CloudBrainConfig.effective(
+            url.trim().ifBlank { settings.aiBaseUrlOverride },
+            model.trim().ifBlank { settings.aiModelOverride },
+            BuildConfig.MIO_AI_BASE_URL, BuildConfig.MIO_AI_MODEL,
+        )
+        if (eff.baseUrl.isBlank() || eff.model.isBlank()) {
             connState = ConnState.Offline("No endpoint configured — Mio runs fully offline.")
             return
         }
         scope.launch {
             testing = true
             connState = ConnState.Connecting
-            // Typed key wins so users can verify before saving; else stored, else developer key.
-            val mdl = model.trim().ifBlank { settings.aiModelOverride.ifBlank { BuildConfig.MIO_AI_MODEL } }
-            val key = if (apiKey.isNotBlank()) {
-                apiKey
-            } else {
-                app.secureKeys.getApiKey().ifBlank { BuildConfig.MIO_AI_API_KEY }
-            }
+            // Typed key wins so users can verify before saving; else the stored key.
+            val key = apiKey.ifBlank { app.secureKeys.getApiKey() }
             connState = try {
-                when (val r = OpenAiCompatibleClient(base, key, mdl).ping()) {
+                when (val r = OpenAiCompatibleClient(eff.baseUrl, key, eff.model).ping()) {
                     is PingResult.Ok -> ConnState.Connected(r.detail)
                     is PingResult.Fail -> ConnState.Failed(r.detail)
                 }
@@ -194,8 +197,8 @@ fun SettingsScreen(
             title = { Text("Clear API key?", style = MioTypography.titleLarge, color = mio.textPrimary) },
             text = {
                 Text(
-                    "Mio will forget the stored key. The cloud brain falls back to the developer key, " +
-                        "if one is configured, otherwise it stays offline. Offline commands keep working.",
+                    "Mio will forget the stored key. The cloud brain switches off until you save " +
+                        "a new key — offline commands keep working.",
                     style = MioTypography.bodyMedium,
                     color = mio.textSecondary,
                 )
@@ -209,6 +212,7 @@ fun SettingsScreen(
                             apiKey = ""
                             keyVisible = false
                             keyTick++
+                            vm.refreshBrainState()
                             connState = ConnState.Offline("Key cleared — tap TEST CONNECTION to verify.")
                         }
                         showClearKeyDialog = false
@@ -240,8 +244,9 @@ fun SettingsScreen(
             ) {
                 // ------------------------------------------------------- AI
                 SectionHeader(title = "AI")
-                Text(cloudLabel.uppercase(), style = CaptionMono, color = mio.accent)
-                InfoNote("OpenAI-compatible provider. Empty endpoint = fully offline; commands still work.")
+                Text(brain.label, style = CaptionMono, color = mio.accent)
+                Text(brain.detail, style = MioTypography.bodyMedium, color = mio.textSecondary)
+                InfoNote("OpenAI-compatible provider. Blank URL/model use the defaults; the cloud brain also needs your API key below.")
                 SettingRow(
                     title = "Use cloud brain",
                     desc = "Off means 100% on-device.",
@@ -289,7 +294,7 @@ fun SettingsScreen(
                 MioTextField(
                     value = apiKey,
                     onChange = { apiKey = it },
-                    label = "API key · ${if (keyStored) "stored" else "not set"}",
+                    label = "API key · $keyHint",
                     placeholder = if (keyStored) "Enter a new key to replace it" else "sk-…",
                     password = !keyVisible,
                     keyboard = KeyboardType.Password,
@@ -314,6 +319,7 @@ fun SettingsScreen(
                                 apiKey = ""
                                 keyVisible = false
                                 keyTick++
+                                vm.refreshBrainState()
                                 connState = ConnState.Offline("Key updated — tap TEST CONNECTION to verify.")
                             }
                         },

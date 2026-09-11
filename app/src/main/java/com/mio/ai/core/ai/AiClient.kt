@@ -4,6 +4,11 @@ package com.mio.ai.core.ai
  * Minimal chat interface for the cloud brain. Any OpenAI-compatible endpoint
  * (OpenAI, Azure OpenAI, Ollama, LM Studio, OpenRouter, Groq, Together…)
  * can back it — see [OpenAiCompatibleClient].
+ *
+ * Architecture boundary: this interface is the ONLY thing the assistant
+ * knows about AI. A future first-party backend/proxy (keyless app, auth at
+ * the proxy) slots in as another implementation — no router, planner, or UI
+ * changes required.
  */
 interface AiClient {
     /** False when no endpoint is configured (offline mode). */

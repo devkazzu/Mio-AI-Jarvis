@@ -13,7 +13,7 @@ import com.mio.ai.core.ai.LlmPlanner
  * Safety policy is enforced here (not in the UI): sensitive steps and
  * multi-step automation of other apps ALWAYS require confirmation.
  */
-class CommandRouter(private val planner: LlmPlanner?) {
+class CommandRouter(val planner: LlmPlanner?) {
 
     sealed interface Decision {
         data class DoPlan(val plan: Plan) : Decision
