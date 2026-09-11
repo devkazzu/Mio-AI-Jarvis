@@ -15,49 +15,51 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
+import com.mio.ai.ui.theme.MioMotion
 import com.mio.ai.ui.theme.mioColors
+import com.mio.ai.ui.theme.mioMotion
 import com.mio.ai.ui.vm.AssistantStatus
 import kotlin.math.sin
 
 /**
- * Voice waveform: driven by the live mic level while listening, gently
- * animated while speaking, near-flat idle shimmer otherwise.
+ * Compact voice waveform: mic-driven while listening, gently alive while
+ * speaking, near-flat idle shimmer. Static when motion is OFF.
  */
 @Composable
-fun Waveform(
+fun VoiceWaveform(
     level: Float,
     status: AssistantStatus,
-    reduceMotion: Boolean,
     modifier: Modifier = Modifier,
+    motion: MioMotion = mioMotion,
 ) {
     val mio = mioColors
     val infinite = rememberInfiniteTransition(label = "wave")
     val phase by infinite.animateFloat(
         initialValue = 0f, targetValue = (Math.PI * 2).toFloat(),
-        animationSpec = infiniteRepeatable(tween(1_400, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing)),
         label = "phase",
     )
     val glow = statusColor(status)
-    val bars = 30
+    val bars = 28
 
-    Canvas(modifier.fillMaxWidth().height(44.dp)) {
+    Canvas(modifier.fillMaxWidth().height(40.dp)) {
         val gap = size.width / (bars * 2f)
-        val barW = gap * 0.9f
+        val barW = gap * 0.85f
         for (i in 0 until bars) {
-            val wave = sin(phase * 1.4f + i * 0.62f) * 0.5f + 0.5f
+            val wave = sin(phase * 1.3f + i * 0.65f) * 0.5f + 0.5f
             val frac = when {
-                reduceMotion -> 0.14f
+                !motion.waveform -> 0.12f
                 status == AssistantStatus.LISTENING ->
-                    (0.12f + level.coerceIn(0f, 1f) * (0.55f + 0.45f * wave)).coerceAtMost(1f)
-                status == AssistantStatus.SPEAKING || status == AssistantStatus.EXECUTING ->
-                    0.22f + 0.38f * wave
-                status == AssistantStatus.THINKING -> 0.16f + 0.22f * wave
-                else -> 0.07f + 0.05f * wave
+                    (0.10f + level.coerceIn(0f, 1f) * (0.55f + 0.45f * wave)).coerceAtMost(1f)
+                status == AssistantStatus.SPEAKING -> 0.20f + 0.34f * wave
+                status == AssistantStatus.THINKING || status == AssistantStatus.EXECUTING ->
+                    0.14f + 0.20f * wave
+                else -> 0.06f + 0.04f * wave
             }
             val h = (size.height * frac).coerceAtLeast(3f)
             val x = gap * 0.5f + i * gap * 2f
             drawRoundRect(
-                color = if (status == AssistantStatus.IDLE) mio.textMuted.copy(alpha = 0.5f) else glow,
+                color = if (status == AssistantStatus.IDLE) mio.textMuted.copy(alpha = 0.45f) else glow,
                 topLeft = Offset(x, (size.height - h) / 2f),
                 size = Size(barW, h),
                 cornerRadius = CornerRadius(barW / 2f, barW / 2f),

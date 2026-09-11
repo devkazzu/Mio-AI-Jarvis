@@ -18,7 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -38,48 +40,52 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.mio.ai.ui.components.ChatList
+import com.mio.ai.ui.components.AssistantStatusView
 import com.mio.ai.ui.components.HudBackground
-import com.mio.ai.ui.components.HudDivider
+import com.mio.ai.ui.components.MioDivider
 import com.mio.ai.ui.components.MioOrb
-import com.mio.ai.ui.components.QuickActions
-import com.mio.ai.ui.components.StatusReadout
-import com.mio.ai.ui.theme.MonoLabel
-import com.mio.ai.ui.theme.MonoReadout
+import com.mio.ai.ui.components.QuickActionGrid
+import com.mio.ai.ui.components.VoiceWaveform
+import com.mio.ai.ui.theme.CaptionMono
 import com.mio.ai.ui.theme.MioTypography
+import com.mio.ai.ui.theme.ReadoutMono
 import com.mio.ai.ui.theme.mioColors
+import com.mio.ai.ui.theme.mioDimens
 import com.mio.ai.ui.vm.AssistantStatus
 import com.mio.ai.ui.vm.AssistantViewModel
 
 /**
- * The JARVIS HUD: header → orb → waveform → quick actions → chat → input.
- * Voice-first ([MioOrb] and the mic button do the same thing), with a full
- * typed-command path for quiet rooms.
+ * The heart of Mio: wordmark + status + destinations up top, the orb at
+ * center, quick actions within reach, and a large mic at the bottom.
+ * Calm, spacious, voice-first.
  */
 @Composable
 fun HomeScreen(
     vm: AssistantViewModel,
     onOpenSettings: () -> Unit,
     onOpenPermissions: (highlight: String?) -> Unit,
+    onOpenConversation: () -> Unit,
+    onOpenActions: () -> Unit,
     wakeSignal: Int,
 ) {
     val mio = mioColors
+    val dim = mioDimens
     val haptics = LocalHapticFeedback.current
     val focus = LocalFocusManager.current
+    val config = LocalConfiguration.current
 
     val status by vm.status.collectAsStateWithLifecycle()
-    val entries by vm.entries.collectAsStateWithLifecycle()
     val partial by vm.partial.collectAsStateWithLifecycle()
     val rms by vm.rms.collectAsStateWithLifecycle()
     val ticker by vm.ticker.collectAsStateWithLifecycle()
     val cloudLabel by vm.cloudLabel.collectAsStateWithLifecycle()
-    val settings by vm.settings.collectAsStateWithLifecycle()
     val a11yOn by vm.a11yConnected.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
@@ -102,140 +108,160 @@ fun HomeScreen(
         focus.clearFocus()
     }
 
+    // Responsive orb: 58% of width, clamped for small → large phones.
+    val orbSize = (config.screenWidthDp * 0.58f).coerceIn(180f, 248f).dp
+
+    val statusDetail = when {
+        status == AssistantStatus.LISTENING && partial.isNotBlank() -> "“$partial”"
+        ticker != null -> ticker
+        else -> cloudLabel
+    }
+
     Box(Modifier.fillMaxSize()) {
         HudBackground()
         Column(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .padding(horizontal = dim.gutter),
         ) {
-            // -- Header ------------------------------------------------------------
+            // -- Top: wordmark + status + destinations -------------------------
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(vertical = dim.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("MIO", style = MioTypography.displaySmall, color = mio.textPrimary)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.foundation.Canvas(Modifier.size(8.dp)) {
-                            drawCircle(
-                                color = if (a11yOn) mio.success else mio.textMuted,
-                            )
-                        }
-                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            Icons.Filled.AutoAwesome,
+                            contentDescription = null,
+                            tint = mio.accent,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(dim.sm))
                         Text(
-                            (if (a11yOn) "UI CONTROL ON  ·  " else "UI CONTROL OFF  ·  ") + cloudLabel.uppercase(),
-                            style = MonoLabel,
-                            color = mio.textMuted,
+                            "MIO",
+                            style = MioTypography.displaySmall,
+                            color = mio.textPrimary,
                         )
                     }
+                    Text(
+                        (if (a11yOn) "UI CONTROL ON · " else "") + cloudLabel.uppercase(),
+                        style = CaptionMono,
+                        color = mio.textMuted,
+                    )
                 }
-                IconButton(onClick = { onOpenPermissions(null) }) {
-                    Icon(Icons.Filled.Lock, contentDescription = "Permissions", tint = mio.textMuted)
+                IconButton(onClick = onOpenConversation) {
+                    Icon(Icons.Filled.ChatBubbleOutline, contentDescription = "Conversation", tint = mio.textSecondary)
+                }
+                IconButton(onClick = onOpenActions) {
+                    Icon(Icons.Filled.Bolt, contentDescription = "Activity", tint = mio.textSecondary)
                 }
                 IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = mio.textMuted)
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = mio.textSecondary)
                 }
             }
 
-            HudDivider(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp))
+            MioDivider(Modifier.fillMaxWidth().height(1.dp))
 
-            // -- Orb + readout + waveform ------------------------------------------
+            // -- Orb + status + waveform ---------------------------------------
             Column(
-                Modifier.fillMaxWidth().padding(top = 10.dp),
+                Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                Spacer(Modifier.height(dim.md))
                 MioOrb(
                     status = status,
-                    level = rms,
-                    reduceMotion = settings.reduceMotion,
+                    amplitude01 = rms,
                     onTap = ::micTap,
-                    size = 200.dp,
+                    size = orbSize,
                 )
-                Spacer(Modifier.height(6.dp))
-                StatusReadout(status = status, partial = partial, ticker = ticker)
-                com.mio.ai.ui.components.Waveform(
+                Spacer(Modifier.height(dim.sm))
+                AssistantStatusView(status = status, centered = true)
+                if (statusDetail != null) {
+                    Spacer(Modifier.height(dim.xs))
+                    Text(
+                        statusDetail,
+                        style = ReadoutMono,
+                        color = mio.textSecondary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                    )
+                }
+                VoiceWaveform(
                     level = rms,
                     status = status,
-                    reduceMotion = settings.reduceMotion,
-                    modifier = Modifier.padding(horizontal = 48.dp),
+                    modifier = Modifier.padding(horizontal = 56.dp, vertical = dim.sm),
                 )
             }
 
-            Spacer(Modifier.height(4.dp))
-            QuickActions(onAction = { vm.submitText(it) })
-            Spacer(Modifier.height(8.dp))
-
-            // -- Chat / history ----------------------------------------------------
-            ChatList(
-                entries = entries,
-                onFix = onOpenPermissions,
-                onConfirm = { vm.confirmPending() },
-                onDismiss = { vm.dismissPending() },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
+            // -- Quick actions ---------------------------------------------------
+            QuickActionGrid(
+                onVoiceCommand = { vm.submitText(it) },
+                onOpenSettings = onOpenSettings,
             )
 
-            // -- Input --------------------------------------------------------------
+            Spacer(Modifier.weight(1f))
+
+            // -- Input + large mic -----------------------------------------------
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(vertical = dim.sm),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(dim.md),
             ) {
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type a command…", style = MonoReadout) },
+                    placeholder = { Text("Type instead…", style = ReadoutMono) },
                     singleLine = true,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(dim.radiusXl),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { submit() }),
                     trailingIcon = {
                         IconButton(onClick = ::submit, enabled = input.isNotBlank()) {
-                            Icon(Icons.Filled.Send, contentDescription = "Send", tint = mio.primary)
+                            Icon(Icons.Filled.Send, contentDescription = "Send", tint = mio.accent)
                         }
                     },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = mio.textPrimary,
                         unfocusedTextColor = mio.textPrimary,
-                        focusedBorderColor = mio.primary,
-                        unfocusedBorderColor = mio.hudLine,
-                        cursorColor = mio.primary,
+                        focusedBorderColor = mio.accent,
+                        unfocusedBorderColor = mio.line,
+                        cursorColor = mio.accent,
                     ),
                 )
                 FloatingActionButton(
                     onClick = ::micTap,
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier.size(72.dp),
                     shape = CircleShape,
                     containerColor = when (status) {
                         AssistantStatus.LISTENING -> mio.danger
                         AssistantStatus.ERROR -> mio.danger
-                        else -> mio.primary
+                        else -> mio.accent
                     },
-                    contentColor = androidx.compose.ui.graphics.Color(0xFF04222A),
+                    contentColor = mio.void,
                 ) {
                     Icon(
                         if (status == AssistantStatus.LISTENING) Icons.Filled.Stop else Icons.Filled.Mic,
                         contentDescription = if (status == AssistantStatus.LISTENING) "Stop listening" else "Talk to Mio",
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(30.dp),
                     )
                 }
             }
             Text(
                 if (status == AssistantStatus.LISTENING) "LISTENING — TAP MIC TO CANCEL"
-                else "TAP THE ORB OR MIC · SAY \"HELP\"",
-                style = MonoLabel,
+                else "TAP THE MIC · SAY “HELP”",
+                style = CaptionMono,
                 color = mio.textMuted,
-                fontSize = 9.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(bottom = dim.sm),
             )
         }
     }

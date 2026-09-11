@@ -11,11 +11,9 @@ import android.provider.Settings
 import android.speech.SpeechRecognizer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,20 +21,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -44,21 +30,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.mio.ai.accessibility.AccessibilityController
+import com.mio.ai.ui.components.GlassSurface
 import com.mio.ai.ui.components.HudBackground
-import com.mio.ai.ui.theme.MonoLabel
+import com.mio.ai.ui.components.InfoNote
+import com.mio.ai.ui.components.MioDivider
+import com.mio.ai.ui.components.MioTopBar
+import com.mio.ai.ui.components.PanelAccent
+import com.mio.ai.ui.components.PermissionCard
+import com.mio.ai.ui.components.PrimaryButton
+import com.mio.ai.ui.components.SectionHeader
+import com.mio.ai.ui.theme.CaptionMono
 import com.mio.ai.ui.theme.MioTypography
 import com.mio.ai.ui.theme.mioColors
+import com.mio.ai.ui.theme.mioDimens
 
 private data class PermRow(
     val id: String,
@@ -66,17 +57,19 @@ private data class PermRow(
     val why: String,
     val granted: Boolean,
     val infoOnly: Boolean = false,
-    val actionLabel: String = "ALLOW",
+    val actionLabel: String = "Allow",
     val onAction: (() -> Unit)? = null,
 )
 
 /**
- * Every capability Mio can use, why it needs it, and a one-tap path to
- * grant it. [highlight] (from failed actions) spotlights the needed row.
+ * Capabilities, honestly: a hero panel explaining UI Control, one card per
+ * permission with a plain-language "why", and a footer of OS limitations.
+ * Nothing Mio needs is ever hidden.
  */
 @Composable
 fun PermissionsScreen(highlight: String?, onBack: () -> Unit) {
     val mio = mioColors
+    val dim = mioDimens
     val ctx = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
 
@@ -94,7 +87,11 @@ fun PermissionsScreen(highlight: String?, onBack: () -> Unit) {
     }
 
     val rows = remember(tick) { buildRows(ctx) { perm -> runtimeLauncher.launch(perm) } }
-    val grantedCount = rows.count { it.granted || it.infoOnly }
+    val a11yGranted = remember(tick) {
+        AccessibilityController.isServiceEnabledInSettings(ctx) ||
+            AccessibilityController.isConnected.value
+    }
+    val readyCount = rows.count { it.granted || it.infoOnly }
 
     Box(Modifier.fillMaxSize()) {
         HudBackground()
@@ -102,106 +99,95 @@ fun PermissionsScreen(highlight: String?, onBack: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .padding(horizontal = dim.gutter),
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = mio.textPrimary)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text("PERMISSIONS", style = MioTypography.titleMedium, color = mio.textPrimary)
-                    Text(
-                        "$grantedCount / ${rows.size} READY",
-                        style = MonoLabel,
-                        color = mio.textMuted,
-                    )
-                }
-            }
+            MioTopBar(title = "Access", onBack = onBack)
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(dim.md),
             ) {
                 item {
                     Text(
-                        "Mio only uses what your commands need. Grant access as features ask for it — " +
-                            "everything keeps working except the feature tied to a missing permission.",
-                        color = mio.textMuted,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                        "$readyCount OF ${rows.size} READY",
+                        style = CaptionMono,
+                        color = mio.textSecondary,
                     )
                 }
-                items(rows, key = { it.id }) { row ->
-                    PermCard(row = row, highlighted = row.id == highlight)
-                }
-                item { Spacer(Modifier.height(16.dp)) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PermCard(row: PermRow, highlighted: Boolean) {
-    val mio = mioColors
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = mio.glass,
-        border = BorderStroke(
-            1.dp,
-            when {
-                highlighted && !row.granted -> mio.warning
-                row.granted -> mio.hudLine
-                else -> mio.danger.copy(alpha = 0.5f)
-            },
-        ),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                when {
-                    row.infoOnly -> Icons.Filled.Info
-                    row.granted -> Icons.Filled.Check
-                    else -> Icons.Filled.Close
-                },
-                contentDescription = null,
-                tint = when {
-                    row.infoOnly -> mio.textMuted
-                    row.granted -> mio.success
-                    else -> mio.danger
-                },
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(row.title, color = mio.textPrimary, fontSize = 14.sp)
-                    if (highlighted && !row.granted) {
-                        Spacer(Modifier.width(8.dp))
-                        Text("NEEDED NOW", style = MonoLabel, color = mio.warning)
+                // -- Hero: UI Control ------------------------------------------------
+                item {
+                    GlassSurface(
+                        accent = if (a11yGranted) PanelAccent.SUCCESS else PanelAccent.CYAN,
+                    ) {
+                        Column {
+                            Text(
+                                if (a11yGranted) "UI CONTROL IS ON" else "WHY MIO NEEDS ACCESS",
+                                style = CaptionMono,
+                                color = if (a11yGranted) mio.success else mio.accent,
+                            )
+                            Spacer(Modifier.height(dim.sm))
+                            Text(
+                                "Accessibility access allows Mio to understand and interact with " +
+                                    "buttons, text fields and other controls inside supported apps.",
+                                style = MioTypography.bodyLarge,
+                                color = mio.textPrimary,
+                            )
+                            Spacer(Modifier.height(dim.sm))
+                            Text(
+                                "Mio only ever acts on your explicit commands — never in the " +
+                                    "background, never on its own. Nothing you see or type leaves " +
+                                    "this phone because of it.",
+                                style = MioTypography.bodyMedium,
+                                color = mio.textSecondary,
+                            )
+                            Spacer(Modifier.height(dim.md))
+                            if (!a11yGranted) {
+                                PrimaryButton(
+                                    text = "Enable Accessibility",
+                                    onClick = {
+                                        openScreen(ctx, Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                        tick++
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            } else {
+                                Text(
+                                    "Enabled — try “open YouTube, search for lo-fi beats”.",
+                                    style = CaptionMono,
+                                    color = mio.success,
+                                )
+                            }
+                        }
                     }
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(row.why, color = mio.textMuted, fontSize = 12.sp, lineHeight = 17.sp)
-            }
-            if (!row.granted && !row.infoOnly && row.onAction != null) {
-                Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = row.onAction,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = mio.primary,
-                        contentColor = Color(0xFF04222A),
-                    ),
-                ) { Text(row.actionLabel, style = MonoLabel) }
+                item { SectionHeader(title = "Permissions") }
+                items(rows, key = { it.id }) { row ->
+                    PermissionCard(
+                        title = row.title,
+                        why = row.why,
+                        granted = row.granted,
+                        infoOnly = row.infoOnly,
+                        ctaLabel = row.actionLabel,
+                        highlighted = row.id == highlight,
+                        onCta = row.onAction?.let { action -> { action(); tick++ } },
+                    )
+                }
+                item {
+                    MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
+                }
+                item {
+                    InfoNote(
+                        "Mio doesn't need draw-over-apps permission — everything happens " +
+                            "in this app or inside the app you're commanding.",
+                    )
+                }
+                item {
+                    InfoNote(
+                        "Some limits come from Android itself: calls and texts always need " +
+                            "your final tap, and Wi-Fi needs the system panel on Android 10+.",
+                    )
+                }
+                item { Spacer(Modifier.height(dim.xl)) }
             }
         }
     }
@@ -227,14 +213,18 @@ private fun buildRows(ctx: Context, request: (String) -> Unit): List<PermRow> {
         PermRow(
             id = "mic",
             title = "Microphone",
-            why = "Voice commands and the optional wake word.",
+            why = "Hears your voice commands and the optional wake word.",
             granted = hasPerm(ctx, Manifest.permission.RECORD_AUDIO),
             onAction = { request(Manifest.permission.RECORD_AUDIO) },
         ),
         PermRow(
             id = "notifications",
             title = "Notifications",
-            why = if (notifNeeded) "Shows the wake-word listener status." else "Not required below Android 13.",
+            why = if (notifNeeded) {
+                "Shows the wake-word listener while it's running."
+            } else {
+                "Not required below Android 13."
+            },
             granted = if (notifNeeded) hasPerm(ctx, Manifest.permission.POST_NOTIFICATIONS) else true,
             infoOnly = !notifNeeded,
             onAction = if (notifNeeded) {
@@ -245,15 +235,19 @@ private fun buildRows(ctx: Context, request: (String) -> Unit): List<PermRow> {
         ),
         PermRow(
             id = "camera",
-            title = "Camera (flashlight)",
-            why = "Only used to switch the torch on/off. Never photos.",
+            title = "Camera",
+            why = "Only switches the flashlight torch. Never takes photos.",
             granted = hasPerm(ctx, Manifest.permission.CAMERA),
             onAction = { request(Manifest.permission.CAMERA) },
         ),
         PermRow(
             id = "bluetooth",
             title = "Bluetooth",
-            why = if (btNeeded) "Voice toggles for Bluetooth on/off." else "Included on this Android version.",
+            why = if (btNeeded) {
+                "Voice toggles for Bluetooth on and off."
+            } else {
+                "Included on this Android version."
+            },
             granted = if (btNeeded) hasPerm(ctx, Manifest.permission.BLUETOOTH_CONNECT) else true,
             infoOnly = !btNeeded,
             onAction = if (btNeeded) {
@@ -265,43 +259,43 @@ private fun buildRows(ctx: Context, request: (String) -> Unit): List<PermRow> {
         PermRow(
             id = "contacts",
             title = "Contacts",
-            why = "Resolve “call mom” to a phone number.",
+            why = "Resolves “call mom” to the right phone number.",
             granted = hasPerm(ctx, Manifest.permission.READ_CONTACTS),
             onAction = { request(Manifest.permission.READ_CONTACTS) },
         ),
         PermRow(
             id = "write_settings",
-            title = "Modify system settings",
+            title = "System settings",
             why = "Screen brightness control. Granted in system Settings.",
             granted = Settings.System.canWrite(ctx),
-            actionLabel = "OPEN",
+            actionLabel = "Open Settings",
             onAction = { openScreen(ctx, Settings.ACTION_MANAGE_WRITE_SETTINGS, withPackage = true) },
         ),
         PermRow(
             id = "dnd",
-            title = "Do Not Disturb access",
-            why = "Silence/unsilence the phone by voice. Granted in system Settings.",
+            title = "Do Not Disturb",
+            why = "Silence and unsilence the phone by voice. Granted in system Settings.",
             granted = ctx.getSystemService(NotificationManager::class.java)
                 ?.isNotificationPolicyAccessGranted == true,
-            actionLabel = "OPEN",
+            actionLabel = "Open Settings",
             onAction = { openScreen(ctx, Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS) },
         ),
         PermRow(
             id = "accessibility",
-            title = "UI Control (accessibility)",
-            why = "Tap, scroll, type and navigate inside other apps — only when you command it.",
+            title = "UI Control",
+            why = "Tap, scroll, type and navigate inside other apps — only on your command.",
             granted = AccessibilityController.isServiceEnabledInSettings(ctx) ||
                 AccessibilityController.isConnected.value,
-            actionLabel = "OPEN",
+            actionLabel = "Open Settings",
             onAction = { openScreen(ctx, Settings.ACTION_ACCESSIBILITY_SETTINGS) },
         ),
         PermRow(
             id = "recognizer",
-            title = "Speech recognizer",
+            title = "Speech engine",
             why = if (SpeechRecognizer.isRecognitionAvailable(ctx)) {
-                "On-device speech engine is ready."
+                "On-device speech recognition is ready."
             } else {
-                "No speech engine found — install Google app / Gboard voice typing."
+                "No speech engine found — install the Google app or Gboard voice typing."
             },
             granted = SpeechRecognizer.isRecognitionAvailable(ctx),
             infoOnly = true,

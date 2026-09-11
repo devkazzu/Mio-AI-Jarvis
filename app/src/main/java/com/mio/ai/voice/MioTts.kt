@@ -28,6 +28,8 @@ class MioTts(private val context: Context) {
     private var tts: TextToSpeech? = null
     private var rate = 1.0f
     private var pitch = 1.0f
+    @Volatile
+    private var preferredVoiceName: String? = null
     private var pendingSpeak: (() -> Unit)? = null
     private val callbacks = ConcurrentHashMap<String, () -> Unit>()
     @Volatile
@@ -57,6 +59,31 @@ class MioTts(private val context: Context) {
         tts?.setSpeechRate(this.rate)
         tts?.setPitch(this.pitch)
     }
+
+    /**
+     * Use a specific engine voice by [TextToSpeech.getVoices] name.
+     * Stored even before init so the preference survives engine startup.
+     */
+    fun setVoiceByName(name: String): Boolean {
+        preferredVoiceName = name.ifBlank { null }
+        val tts = this.tts ?: return name.isBlank()
+        if (name.isBlank()) {
+            pickBestVoice(tts)?.let { tts.voice = it }
+            return true
+        }
+        val voice = runCatching { tts.voices }.getOrNull()?.firstOrNull { it.name == name }
+            ?: return false
+        return runCatching { tts.setVoice(voice) }.getOrDefault(TextToSpeech.ERROR) ==
+            TextToSpeech.SUCCESS
+    }
+
+    /** English voice names for the Settings picker (empty until engine ready). */
+    fun englishVoiceNames(): List<String> =
+        runCatching { tts?.voices }.getOrNull()
+            ?.filter { it.locale.language == "en" }
+            ?.map { it.name }
+            ?.sorted()
+            .orEmpty()
 
     /**
      * Speak [text]. Long replies are chunked by sentence so nothing is cut.

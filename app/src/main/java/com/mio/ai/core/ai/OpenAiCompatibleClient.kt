@@ -31,13 +31,17 @@ class OpenAiCompatibleClient(
     override val describe: String
         get() = "$model · ${endpoint.substringAfter("://").substringBefore("/").ifBlank { "custom" }}"
 
-    override suspend fun chat(messages: List<ChatMessage>, systemPrompt: String): String =
+    override suspend fun chat(
+        messages: List<ChatMessage>,
+        systemPrompt: String,
+        maxTokens: Int,
+    ): String =
         withContext(Dispatchers.IO) {
             if (!isConfigured) throw AiException("Cloud brain is not configured.")
             val payload = mapOf(
                 "model" to model,
                 "temperature" to 0.4,
-                "max_tokens" to 600,
+                "max_tokens" to maxTokens.coerceIn(60, 2000),
                 "messages" to buildList {
                     if (systemPrompt.isNotBlank()) {
                         add(mapOf("role" to "system", "content" to systemPrompt))

@@ -444,6 +444,9 @@ object CommandParser {
         if (s.contains("recent apps") || s == "open recents" || s == "show recent apps") {
             return Action.OpenRecents
         }
+        if (s in setOf("show my apps", "show all apps", "all apps", "app list", "my apps", "list apps", "list my apps", "installed apps")) {
+            return Action.AppList
+        }
         Regex("^close( (this|the|current|my))? app$").matches(s) ||
             s.let { it == "close it" || it == "close this" } ||
             Regex("^close (.+)$").find(s)?.let { m ->

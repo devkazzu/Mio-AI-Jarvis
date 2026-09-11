@@ -8,14 +8,18 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mio.ai.ui.navigation.MioNav
 import com.mio.ai.ui.theme.MioTheme
+import com.mio.ai.ui.theme.rememberEffectiveMotion
+import com.mio.ai.ui.theme.themeModeOf
 import com.mio.ai.ui.vm.AssistantViewModel
 
 /**
- * Single-activity host. The wake-word service reuses it via [EXTRA_WAKE]
- * (singleTask + onNewIntent → auto mic).
+ * Single-activity host. Theme, accent intensity and motion come from user
+ * settings (motion also honors the OS animator-scale accessibility switch).
+ * The wake-word service reuses this activity via [EXTRA_WAKE].
  */
 class MainActivity : ComponentActivity() {
 
@@ -26,8 +30,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         if (intent?.getBooleanExtra(EXTRA_WAKE, false) == true) wakeSignal++
         setContent {
-            MioTheme {
-                val vm: AssistantViewModel = viewModel()
+            val vm: AssistantViewModel = viewModel()
+            val settings by vm.settings.collectAsStateWithLifecycle()
+            val motion = rememberEffectiveMotion(settings.animation)
+            MioTheme(
+                mode = themeModeOf(settings.theme),
+                accentIntensity = settings.accentIntensity,
+                motion = motion,
+            ) {
                 MioNav(vm = vm, wakeSignal = wakeSignal)
             }
         }

@@ -37,7 +37,11 @@ class MioApplication : Application() {
         val model = settings.aiModelOverride.ifBlank { BuildConfig.MIO_AI_MODEL }
         val apiKey = secureKeys.getApiKey().ifBlank { BuildConfig.MIO_AI_API_KEY }
         val client = OpenAiCompatibleClient(baseUrl, apiKey, model)
-        val planner = if (settings.useCloudAi && client.isConfigured) LlmPlanner(client) else null
+        val planner = if (settings.useCloudAi && client.isConfigured) {
+            LlmPlanner(client, settings.responseStyle)
+        } else {
+            null
+        }
         return AiRuntime(client, planner, CommandRouter(planner))
     }
 }

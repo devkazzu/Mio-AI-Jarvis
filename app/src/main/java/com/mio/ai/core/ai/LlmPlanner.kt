@@ -121,6 +121,7 @@ object LlmPlanParser {
             "home" -> Action.GoHome
             "back" -> Action.PressBack
             "recents" -> Action.OpenRecents
+            "app_list" -> Action.AppList
             "set_alarm" -> {
                 val h = MiniJson.asInt(p["hour"]) ?: return null
                 val m = MiniJson.asInt(p["minute"]) ?: return null

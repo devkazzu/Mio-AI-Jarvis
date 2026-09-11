@@ -55,6 +55,16 @@ class LlmPlanParserTest {
     }
 
     @Test
+    fun `app list parses`() {
+        val json = """
+            {"mode":"plan","summary":"Apps","confirm":false,
+             "steps":[{"type":"app_list","params":{}}]}
+        """.trimIndent()
+        val plan = LlmPlanParser.toPlan(MiniJson.asMap(MiniJson.parse(json)))!!
+        assertTrue(plan.steps.single() is Action.AppList)
+    }
+
+    @Test
     fun `multi-step automation plan parses`() {
         val json = """
             {"mode":"plan","summary":"IG search","confirm":true,"confirm_prompt":"Go?",

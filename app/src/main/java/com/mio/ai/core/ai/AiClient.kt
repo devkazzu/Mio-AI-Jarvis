@@ -16,7 +16,11 @@ interface AiClient {
      * One chat completion. Throws [AiException] on transport/API failure so
      * callers can fall back to the offline brain.
      */
-    suspend fun chat(messages: List<ChatMessage>, systemPrompt: String): String
+    suspend fun chat(
+        messages: List<ChatMessage>,
+        systemPrompt: String,
+        maxTokens: Int = 450,
+    ): String
 }
 
 data class ChatMessage(val role: Role, val content: String) {

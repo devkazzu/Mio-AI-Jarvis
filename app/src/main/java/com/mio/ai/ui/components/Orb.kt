@@ -19,63 +19,57 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.mio.ai.ui.theme.MioFx
+import com.mio.ai.ui.theme.MioMotion
 import com.mio.ai.ui.theme.mioColors
+import com.mio.ai.ui.theme.mioDimens
+import com.mio.ai.ui.theme.mioFx
+import com.mio.ai.ui.theme.mioMotion
 import com.mio.ai.ui.vm.AssistantStatus
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** Status → HUD glow color (matches MASTER.md). */
-@Composable
-fun statusColor(status: AssistantStatus): Color {
-    val mio = mioColors
-    return when (status) {
-        AssistantStatus.IDLE -> mio.textMuted
-        AssistantStatus.LISTENING -> mio.primary
-        AssistantStatus.THINKING -> mio.secondary
-        AssistantStatus.SPEAKING -> mio.speaking
-        AssistantStatus.EXECUTING -> mio.executing
-        AssistantStatus.ERROR -> mio.danger
-    }
-}
-
 /**
- * Animated central AI orb: glowing core, counter-rotating dashed rings and
- * orbiting particles. Reacts to [AssistantStatus] + live mic [level].
- * Fully static when [reduceMotion] is on (accessibility).
+ * The Mio orb: calm, state-reactive, amplitude-aware.
+ * Restrained by design — thin rings, soft aura, motion only where it informs.
  */
 @Composable
 fun MioOrb(
     status: AssistantStatus,
-    level: Float,
-    reduceMotion: Boolean,
+    amplitude01: Float,
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 228.dp,
+    size: Dp = 224.dp,
+    motion: MioMotion = mioMotion,
+    fx: MioFx = mioFx,
 ) {
     val mio = mioColors
+    val dim = mioDimens
     val glow = statusColor(status)
+    val energy = amplitude01.coerceIn(0f, 1f)
+    val intensity = fx.accentIntensity
 
     val infinite = rememberInfiniteTransition(label = "orb")
     val rotation by infinite.animateFloat(
         initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(14_000, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(dim.durationOrbit, easing = LinearEasing)),
         label = "rotation",
     )
     val pulse by infinite.animateFloat(
-        initialValue = 0.94f, targetValue = 1.05f,
+        initialValue = 0.97f, targetValue = 1.03f,
         animationSpec = infiniteRepeatable(
-            tween(1_600, easing = FastOutSlowInEasing), RepeatMode.Reverse,
+            tween(dim.durationPulse, easing = FastOutSlowInEasing), RepeatMode.Reverse,
         ),
         label = "pulse",
     )
-    val rot = if (reduceMotion) 24f else rotation
-    val scl = if (reduceMotion) 1f else pulse
-    val energy = level.coerceIn(0f, 1f)
+    val rot = if (motion.rotation) rotation else 24f
+    val breathe = if (motion.pulse) pulse else 1f
 
     Canvas(
         modifier
@@ -86,10 +80,13 @@ fun MioOrb(
         val d = size.minDimension
         val c = Offset(d / 2f, d / 2f)
 
-        // Outer aura.
+        // Soft aura (scaled by accent intensity).
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(glow.copy(alpha = 0.30f), Color.Transparent),
+                colors = listOf(
+                    glow.copy(alpha = 0.16f * intensity + energy * 0.10f),
+                    Color.Transparent,
+                ),
                 center = c,
                 radius = d / 2f,
             ),
@@ -97,73 +94,91 @@ fun MioOrb(
             center = c,
         )
 
-        // Counter-rotating dashed rings.
-        val rings = listOf(
-            Triple(0.98f, 3f, 26f), // (diameter fraction, stroke, dash)
-            Triple(0.88f, 2f, 12f),
-            Triple(0.78f, 5f, 46f),
-        )
-        rings.forEachIndexed { i, (frac, stroke, dash) ->
-            val rd = d * frac
-            rotate((if (i % 2 == 0) rot else -rot * 1.4f) + i * 53f, c) {
+        // Thin static ring.
+        run {
+            val rd = d * 0.96f
+            drawArc(
+                color = glow.copy(alpha = 0.30f),
+                startAngle = 0f, sweepAngle = 360f, useCenter = false,
+                topLeft = Offset(c.x - rd / 2f, c.y - rd / 2f),
+                size = Size(rd, rd),
+                style = Stroke(width = 1.5f),
+            )
+        }
+
+        // Dashed orbit ring (counter-rotates in FULL).
+        run {
+            val rd = d * 0.86f
+            rotate(if (motion.rotation) -rot else 0f, c) {
                 drawArc(
-                    color = glow.copy(alpha = 0.55f - i * 0.1f),
-                    startAngle = 0f,
-                    sweepAngle = 292f - i * 34f,
-                    useCenter = false,
+                    color = glow.copy(alpha = 0.45f),
+                    startAngle = 0f, sweepAngle = 300f, useCenter = false,
                     topLeft = Offset(c.x - rd / 2f, c.y - rd / 2f),
                     size = Size(rd, rd),
-                    style = dashedStroke(stroke, dash, dash * 0.55f),
+                    style = Stroke(
+                        width = 2f,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)),
+                    ),
                 )
             }
         }
 
-        // Listening energy ring (mic-reactive).
-        if (status == AssistantStatus.LISTENING && energy > 0.02f && !reduceMotion) {
-            val rd = d * (0.70f + energy * 0.10f)
-            drawArc(
-                color = mio.primary.copy(alpha = 0.35f + energy * 0.5f),
-                startAngle = -90f,
-                sweepAngle = 120f + energy * 220f,
-                useCenter = false,
-                topLeft = Offset(c.x - rd / 2f, c.y - rd / 2f),
-                size = Size(rd, rd),
-                style = Stroke(width = 6f),
-            )
+        // State arc: listening energy / thinking & executing sweep.
+        when (status) {
+            AssistantStatus.LISTENING -> {
+                val rd = d * (0.74f + energy * 0.06f)
+                drawArc(
+                    color = mio.accent.copy(alpha = (0.35f + energy * 0.55f) * intensity),
+                    startAngle = -90f,
+                    sweepAngle = 100f + energy * 240f,
+                    useCenter = false,
+                    topLeft = Offset(c.x - rd / 2f, c.y - rd / 2f),
+                    size = Size(rd, rd),
+                    style = Stroke(width = 4f),
+                )
+            }
+            AssistantStatus.THINKING, AssistantStatus.EXECUTING -> {
+                val rd = d * 0.74f
+                rotate(if (motion.rotation) rot * 1.6f else 40f, c) {
+                    drawArc(
+                        color = glow.copy(alpha = 0.75f * intensity),
+                        startAngle = 0f, sweepAngle = 95f, useCenter = false,
+                        topLeft = Offset(c.x - rd / 2f, c.y - rd / 2f),
+                        size = Size(rd, rd),
+                        style = Stroke(width = 3.5f),
+                    )
+                }
+            }
+            else -> Unit
         }
 
-        // Core.
-        val coreR = d * 0.30f * scl * (1f + energy * 0.12f)
+        // Core — amplitude-reactive.
+        val coreR = d * 0.27f * breathe * (1f + energy * 0.18f)
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(Color.White, glow, mio.secondary.copy(alpha = 0.85f), Color.Transparent),
+                colors = listOf(
+                    Color.White.copy(alpha = 0.95f),
+                    glow.copy(alpha = 0.75f),
+                    glow.copy(alpha = 0.12f * intensity),
+                ),
                 center = c,
-                radius = coreR * 1.9f,
+                radius = coreR * 1.35f,
             ),
-            radius = coreR * 1.9f,
-            center = c,
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.95f), glow.copy(alpha = 0.55f)),
-                center = c,
-                radius = coreR,
-            ),
-            radius = coreR,
+            radius = coreR * 1.35f,
             center = c,
         )
 
-        // Orbiting particles.
-        if (!reduceMotion) {
-            for (k in 0 until 3) {
-                val a = Math.toRadians((rot * 1.6 + k * 120f).toDouble())
-                val orbitR = d * 0.44f
+        // Two quiet orbit particles (FULL only).
+        if (motion.particles) {
+            for (k in 0 until 2) {
+                val a = Math.toRadians((rot * 1.4 + k * 180f).toDouble())
+                val orbitR = d * 0.43f
                 val p = Offset(
                     c.x + (orbitR * cos(a)).toFloat(),
                     c.y + (orbitR * sin(a)).toFloat(),
                 )
-                drawCircle(glow.copy(alpha = 0.25f), radius = 10f, center = p)
-                drawCircle(Color.White, radius = 3.2f, center = p)
+                drawCircle(glow.copy(alpha = 0.20f * intensity), radius = 8f, center = p)
+                drawCircle(Color.White.copy(alpha = 0.9f), radius = 2.4f, center = p)
             }
         }
     }

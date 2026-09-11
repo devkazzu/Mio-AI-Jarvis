@@ -13,23 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,42 +26,59 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mio.ai.BuildConfig
 import com.mio.ai.MioApplication
+import com.mio.ai.data.AnimationPref
+import com.mio.ai.data.ListeningMode
+import com.mio.ai.data.MioThemePref
+import com.mio.ai.data.ResponseStyle
 import com.mio.ai.ui.components.HudBackground
-import com.mio.ai.ui.components.HudDivider
-import com.mio.ai.ui.theme.MonoLabel
-import com.mio.ai.ui.theme.MioTypography
+import com.mio.ai.ui.components.InfoNote
+import com.mio.ai.ui.components.MioDivider
+import com.mio.ai.ui.components.MioDropdown
+import com.mio.ai.ui.components.MioTextField
+import com.mio.ai.ui.components.MioToggle
+import com.mio.ai.ui.components.MioTopBar
+import com.mio.ai.ui.components.PrimaryButton
+import com.mio.ai.ui.components.SecondaryButton
+import com.mio.ai.ui.components.SectionHeader
+import com.mio.ai.ui.components.SegmentedOptions
+import com.mio.ai.ui.components.SettingRow
+import com.mio.ai.ui.components.StepperRow
+import com.mio.ai.ui.theme.CaptionMono
 import com.mio.ai.ui.theme.mioColors
+import com.mio.ai.ui.theme.mioDimens
 import com.mio.ai.ui.vm.AssistantViewModel
 import kotlinx.coroutines.launch
 
 /**
- * Settings: AI brain credentials (encrypted), voice tuning, behavior,
- * history and about. Keys never touch source control.
+ * Polished settings: AI · Voice · Automation · Appearance · Privacy · About.
+ * Every control writes through to DataStore (and encrypted storage for keys).
  */
 @Composable
 fun SettingsScreen(
     vm: AssistantViewModel,
     onBack: () -> Unit,
-    onOpenPermissions: () -> Unit,
+    onOpenPermissions: (highlight: String?) -> Unit,
+    onOpenLicenses: () -> Unit,
     onHelp: () -> Unit,
 ) {
     val mio = mioColors
+    val dim = mioDimens
     val ctx = LocalContext.current
     val app = remember(ctx) { ctx.applicationContext as MioApplication }
     val scope = rememberCoroutineScope()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val cloudLabel by vm.cloudLabel.collectAsStateWithLifecycle()
+    val voices by vm.ttsVoices.collectAsStateWithLifecycle()
+    val a11yOn by vm.a11yConnected.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) { vm.refreshVoices() }
 
     var url by remember(settings.aiBaseUrlOverride) { mutableStateOf(settings.aiBaseUrlOverride) }
     var model by remember(settings.aiModelOverride) { mutableStateOf(settings.aiModelOverride) }
@@ -87,213 +93,234 @@ fun SettingsScreen(
             Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding(),
+                .navigationBarsPadding()
+                .padding(horizontal = dim.gutter),
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = mio.textPrimary)
-                }
-                Text("SETTINGS", style = MioTypography.titleMedium, color = mio.textPrimary)
-            }
+            MioTopBar(title = "Settings", onBack = onBack)
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(dim.xs),
             ) {
-                // ------------------------------------------------ AI brain
-                SectionTitle("AI BRAIN")
-                Text(cloudLabel.uppercase(), style = MonoLabel, color = mio.primary)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Any OpenAI-compatible endpoint (OpenAI, Ollama, LM Studio, OpenRouter…). " +
-                        "Leave empty to stay fully offline — commands still work.",
-                    color = mio.textMuted, fontSize = 12.sp, lineHeight = 17.sp,
-                )
-                SwitchRow(
+                // ------------------------------------------------------- AI
+                SectionHeader(title = "AI")
+                Text(cloudLabel.uppercase(), style = CaptionMono, color = mio.accent)
+                InfoNote("OpenAI-compatible provider. Empty endpoint = fully offline; commands still work.")
+                SettingRow(
                     title = "Use cloud brain",
-                    desc = "Off = 100% offline, on-device only.",
-                    checked = settings.useCloudAi,
-                    onChange = { scope.launch { app.settingsRepo.setUseCloudAi(it) } },
-                )
-                MioField(value = url, onChange = { url = it }, label = "Base URL", placeholder = "https://api.openai.com/v1")
-                MioField(value = model, onChange = { model = it }, label = "Model", placeholder = "gpt-4o-mini")
-                MioField(
-                    value = apiKey, onChange = { apiKey = it },
-                    label = "API key ${if (keyStored) "(stored ✓)" else "(not set)"}",
-                    placeholder = "sk-…",
-                    password = true,
-                    keyboard = KeyboardType.Password,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    MioButton("SAVE AI CONFIG", Modifier.weight(1f)) {
-                        scope.launch {
-                            app.settingsRepo.setAiEndpoint(url, model)
-                            if (apiKey.isNotBlank()) app.secureKeys.setApiKey(apiKey)
-                            apiKey = ""
-                            keyTick++
-                        }
+                    desc = "Off means 100% on-device.",
+                    onToggle = { scope.launch { app.settingsRepo.setUseCloudAi(!settings.useCloudAi) } },
+                ) {
+                    MioToggle(settings.useCloudAi) {
+                        scope.launch { app.settingsRepo.setUseCloudAi(it) }
                     }
-                    OutlinedButton(
-                        onClick = { scope.launch { app.secureKeys.clearApiKey(); keyTick++ } },
-                        enabled = keyStored,
-                    ) { Text("CLEAR KEY", style = MonoLabel) }
                 }
-                HudDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = 10.dp))
+                MioTextField(value = url, onChange = { url = it }, label = "Base URL", placeholder = "https://api.openai.com/v1")
+                MioTextField(value = model, onChange = { model = it }, label = "Model", placeholder = "gpt-4o-mini")
+                MioTextField(
+                    value = apiKey, onChange = { apiKey = it },
+                    label = "API key ${if (keyStored) "(stored)" else "(not set)"}",
+                    placeholder = "sk-…", password = true, keyboard = KeyboardType.Password,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(dim.md)) {
+                    PrimaryButton("Save", { scope.launch { app.settingsRepo.setAiEndpoint(url, model) } }, Modifier.weight(1f), compact = true)
+                    SecondaryButton(
+                        if (apiKey.isNotBlank()) "Set key" else "Clear key",
+                        {
+                            scope.launch {
+                                if (apiKey.isNotBlank()) app.secureKeys.setApiKey(apiKey) else app.secureKeys.clearApiKey()
+                                apiKey = ""
+                                keyTick++
+                            }
+                        },
+                        Modifier.weight(1f), compact = true,
+                    )
+                }
+                SettingRow(title = "Response style", desc = "How much Mio says.") {
+                    Spacer(Modifier.width(1.dp))
+                }
+                SegmentedOptions(
+                    options = listOf(
+                        ResponseStyle.CONCISE to "Concise",
+                        ResponseStyle.BALANCED to "Balanced",
+                        ResponseStyle.DETAILED to "Detailed",
+                    ),
+                    selected = settings.responseStyle,
+                    onSelect = { scope.launch { app.settingsRepo.setResponseStyle(it) } },
+                )
+                SettingRow(
+                    title = "Conversation memory",
+                    desc = "Remember recent turns for follow-ups.",
+                    onToggle = { scope.launch { app.settingsRepo.setMemoryEnabled(!settings.memoryEnabled) } },
+                ) {
+                    MioToggle(settings.memoryEnabled) {
+                        scope.launch { app.settingsRepo.setMemoryEnabled(it) }
+                    }
+                }
+                SettingRow(title = "Memory depth", desc = "Turns sent with each request.") {
+                    StepperRow(
+                        valueText = "${settings.historyDepth}",
+                        onMinus = { scope.launch { app.settingsRepo.setHistoryDepth(settings.historyDepth - 1) } },
+                        onPlus = { scope.launch { app.settingsRepo.setHistoryDepth(settings.historyDepth + 1) } },
+                        minusEnabled = settings.historyDepth > 3,
+                        plusEnabled = settings.historyDepth < 20,
+                    )
+                }
+                MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
 
-                // --------------------------------------------------- voice
-                SectionTitle("VOICE")
-                SwitchRow(
-                    title = "Spoken replies",
-                    desc = "Mio talks back. Off = text only.",
-                    checked = settings.voiceReplies,
-                    onChange = { scope.launch { app.settingsRepo.setVoiceReplies(it) } },
+                // ---------------------------------------------------- Voice
+                SectionHeader(title = "Voice")
+                MioDropdown(
+                    label = "Voice",
+                    options = voices,
+                    selected = settings.ttsVoiceName,
+                    onSelect = {
+                        scope.launch { app.settingsRepo.setTtsVoice(it) }
+                        vm.refreshVoices()
+                    },
                 )
                 var rate by remember(settings.speechRate) { mutableFloatStateOf(settings.speechRate) }
-                Text("SPEECH RATE · ${"%.2f".format(rate)}×", style = MonoLabel, color = mio.textMuted)
+                Text("SPEECH SPEED · ${"%.2f".format(rate)}×", style = CaptionMono, color = mio.textSecondary)
                 Slider(
                     value = rate, onValueChange = { rate = it },
                     onValueChangeFinished = { scope.launch { app.settingsRepo.setSpeechRate(rate) } },
                     valueRange = 0.5f..2.0f, steps = 5,
-                    colors = SliderDefaults.colors(thumbColor = mio.primary, activeTrackColor = mio.primary),
+                    colors = SliderDefaults.colors(thumbColor = mio.accent, activeTrackColor = mio.accent),
                 )
                 var pitch by remember(settings.speechPitch) { mutableFloatStateOf(settings.speechPitch) }
-                Text("PITCH · ${"%.2f".format(pitch)}×", style = MonoLabel, color = mio.textMuted)
+                Text("PITCH · ${"%.2f".format(pitch)}×", style = CaptionMono, color = mio.textSecondary)
                 Slider(
                     value = pitch, onValueChange = { pitch = it },
                     onValueChangeFinished = { scope.launch { app.settingsRepo.setSpeechPitch(pitch) } },
                     valueRange = 0.5f..2.0f, steps = 5,
-                    colors = SliderDefaults.colors(thumbColor = mio.primary, activeTrackColor = mio.primary),
+                    colors = SliderDefaults.colors(thumbColor = mio.accent, activeTrackColor = mio.accent),
                 )
-                HudDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = 10.dp))
-
-                // ------------------------------------------------ behavior
-                SectionTitle("BEHAVIOR")
-                SwitchRow(
-                    title = "Confirm before actions",
-                    desc = "Mio asks before calls, texts and multi-step automation.",
-                    checked = settings.confirmations,
-                    onChange = { scope.launch { app.settingsRepo.setConfirmations(it) } },
-                )
-                SwitchRow(
+                SettingRow(
+                    title = "Spoken replies",
+                    desc = "Off means text only.",
+                    onToggle = { scope.launch { app.settingsRepo.setVoiceReplies(!settings.voiceReplies) } },
+                ) {
+                    MioToggle(settings.voiceReplies) {
+                        scope.launch { app.settingsRepo.setVoiceReplies(it) }
+                    }
+                }
+                SettingRow(
                     title = "Wake word “Hey Mio”",
-                    desc = "Always-on listening (uses more battery). Needs mic + notifications.",
-                    checked = settings.wakeWord,
-                    onChange = { vm.setWakeWord(it) },
-                )
-                SwitchRow(
-                    title = "Reduce motion",
-                    desc = "Static orb, no pulse or waveform animation.",
-                    checked = settings.reduceMotion,
-                    onChange = { scope.launch { app.settingsRepo.setReduceMotion(it) } },
-                )
-                MioField(value = nickname, onChange = { nickname = it }, label = "Your name", placeholder = "Mio will call you this")
-                MioButton("SAVE NAME", Modifier.fillMaxWidth()) {
-                    scope.launch { app.settingsRepo.setNickname(nickname.ifBlank { null }) }
+                    desc = "Always-on listening. Uses more battery.",
+                    onToggle = { vm.setWakeWord(!settings.wakeWord) },
+                ) {
+                    MioToggle(settings.wakeWord) { vm.setWakeWord(it) }
                 }
-                OutlinedButton(onClick = onOpenPermissions, modifier = Modifier.fillMaxWidth()) {
-                    Text("OPEN PERMISSIONS", style = MonoLabel)
+                SettingRow(title = "Listening mode", desc = "Continuous keeps the mic open between turns.") {
+                    Spacer(Modifier.width(1.dp))
                 }
-                HudDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = 10.dp))
-
-                // ---------------------------------------------------- data
-                SectionTitle("HISTORY")
-                OutlinedButton(
-                    onClick = { vm.clearHistory() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("CLEAR CONVERSATION", style = MonoLabel) }
-                HudDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = 10.dp))
-
-                // --------------------------------------------------- about
-                SectionTitle("ABOUT")
-                Text(
-                    "Mio AI v${BuildConfig.VERSION_NAME} — a JARVIS-style voice assistant that " +
-                        "actually operates your phone. Say “help” any time to hear what I can do.",
-                    color = mio.textMuted, fontSize = 12.sp, lineHeight = 17.sp,
+                SegmentedOptions(
+                    options = listOf(ListeningMode.TAP to "Tap to talk", ListeningMode.CONTINUOUS to "Continuous"),
+                    selected = settings.listeningMode,
+                    onSelect = { scope.launch { app.settingsRepo.setListeningMode(it) } },
                 )
-                Spacer(Modifier.height(8.dp))
-                MioButton("HEAR WHAT MIO CAN DO", Modifier.fillMaxWidth(), onClick = onHelp)
-                Spacer(Modifier.height(24.dp))
+                MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
+
+                // ----------------------------------------------- Automation
+                SectionHeader(title = "Automation", actionLabel = "Access", onAction = { onOpenPermissions(null) })
+                SettingRow(
+                    title = "UI Control",
+                    desc = if (a11yOn) "On — Mio can tap, scroll and type." else "Off — tap Open to enable.",
+                ) {
+                    SecondaryButton(
+                        if (a11yOn) "Open" else "Enable",
+                        { onOpenPermissions("accessibility") },
+                        compact = true,
+                    )
+                }
+                SettingRow(
+                    title = "Confirm before actions",
+                    desc = "Ask first for calls, texts and automation.",
+                    onToggle = { scope.launch { app.settingsRepo.setConfirmations(!settings.confirmations) } },
+                ) {
+                    MioToggle(settings.confirmations) {
+                        scope.launch { app.settingsRepo.setConfirmations(it) }
+                    }
+                }
+                SettingRow(title = "Action timeout", desc = "Max time per step before Mio gives up.") {
+                    StepperRow(
+                        valueText = "${settings.actionTimeoutSec}s",
+                        onMinus = { scope.launch { app.settingsRepo.setActionTimeoutSec(settings.actionTimeoutSec - 1) } },
+                        onPlus = { scope.launch { app.settingsRepo.setActionTimeoutSec(settings.actionTimeoutSec + 1) } },
+                        minusEnabled = settings.actionTimeoutSec > 5,
+                        plusEnabled = settings.actionTimeoutSec < 30,
+                    )
+                }
+                MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
+
+                // ----------------------------------------------- Appearance
+                SectionHeader(title = "Appearance")
+                SettingRow(title = "Theme", desc = "Two calibrated dark themes.") {
+                    Spacer(Modifier.width(1.dp))
+                }
+                SegmentedOptions(
+                    options = listOf(MioThemePref.MIDNIGHT to "Midnight", MioThemePref.ABYSS to "Abyss"),
+                    selected = settings.theme,
+                    onSelect = { scope.launch { app.settingsRepo.setTheme(it) } },
+                )
+                var accent by remember(settings.accentIntensity) { mutableFloatStateOf(settings.accentIntensity) }
+                Text("ACCENT INTENSITY · ${(accent * 100).toInt()}%", style = CaptionMono, color = mio.textSecondary)
+                Slider(
+                    value = accent, onValueChange = { accent = it },
+                    onValueChangeFinished = { scope.launch { app.settingsRepo.setAccentIntensity(accent) } },
+                    valueRange = 0.3f..1.0f,
+                    colors = SliderDefaults.colors(thumbColor = mio.accent, activeTrackColor = mio.accent),
+                )
+                SettingRow(title = "Animation", desc = "Reduced keeps fades; Off is fully static.") {
+                    Spacer(Modifier.width(1.dp))
+                }
+                SegmentedOptions(
+                    options = listOf(
+                        AnimationPref.FULL to "Full",
+                        AnimationPref.REDUCED to "Reduced",
+                        AnimationPref.OFF to "Off",
+                    ),
+                    selected = settings.animation,
+                    onSelect = { scope.launch { app.settingsRepo.setAnimation(it) } },
+                )
+                InfoNote("Your system animator-scale accessibility setting always wins when set to off.")
+                MioTextField(value = nickname, onChange = { nickname = it }, label = "Your name", placeholder = "What Mio calls you")
+                PrimaryButton(
+                    "Save name",
+                    { scope.launch { app.settingsRepo.setNickname(nickname.ifBlank { null }) } },
+                    Modifier.fillMaxWidth(), compact = true,
+                )
+                MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
+
+                // -------------------------------------------------- Privacy
+                SectionHeader(title = "Privacy")
+                SettingRow(
+                    title = "Keep history",
+                    desc = "Keep conversation between restarts.",
+                    onToggle = { scope.launch { app.settingsRepo.setKeepHistory(!settings.keepHistory) } },
+                ) {
+                    MioToggle(settings.keepHistory) {
+                        scope.launch { app.settingsRepo.setKeepHistory(it) }
+                    }
+                }
+                InfoNote("On-device only: settings, your encrypted API key, and the last 40 conversation turns. Nothing is uploaded by Mio itself.")
+                SecondaryButton(
+                    "Clear history",
+                    { vm.clearHistory() },
+                    Modifier.fillMaxWidth(), destructive = true,
+                )
+                MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
+
+                // ---------------------------------------------------- About
+                SectionHeader(title = "About")
+                InfoNote("Mio AI v${BuildConfig.VERSION_NAME} · by Mio AI contributors")
+                Row(horizontalArrangement = Arrangement.spacedBy(dim.md)) {
+                    SecondaryButton("Licenses", onOpenLicenses, Modifier.weight(1f), compact = true)
+                    SecondaryButton("What can Mio do?", onHelp, Modifier.weight(1f), compact = true)
+                }
+                Spacer(Modifier.height(dim.xl))
             }
         }
     }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, style = MioTypography.titleMedium, color = mioColors.textPrimary)
-}
-
-@Composable
-private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    val mio = mioColors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = mio.textPrimary, fontSize = 14.sp)
-            Text(desc, color = mio.textMuted, fontSize = 12.sp, lineHeight = 16.sp)
-        }
-        Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = checked, onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = mio.primary,
-                checkedTrackColor = mio.primary.copy(alpha = 0.35f),
-            ),
-        )
-    }
-}
-
-@Composable
-private fun MioField(
-    value: String,
-    onChange: (String) -> Unit,
-    label: String,
-    placeholder: String,
-    password: Boolean = false,
-    keyboard: KeyboardType = KeyboardType.Text,
-) {
-    val mio = mioColors
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(label.uppercase(), style = MonoLabel, color = mio.textMuted)
-        Spacer(Modifier.height(4.dp))
-        OutlinedTextField(
-            value = value, onValueChange = onChange,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(placeholder, color = mio.textMuted.copy(alpha = 0.6f), fontSize = 13.sp) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboard),
-            visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = mio.textPrimary,
-                unfocusedTextColor = mio.textPrimary,
-                focusedBorderColor = mio.primary,
-                unfocusedBorderColor = mio.hudLine,
-                cursorColor = mio.primary,
-            ),
-        )
-    }
-}
-
-@Composable
-private fun MioButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val mio = mioColors
-    Button(
-        onClick = onClick,
-        modifier = modifier,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = mio.primary,
-            contentColor = Color(0xFF04222A),
-        ),
-    ) { Text(text, style = MonoLabel) }
 }

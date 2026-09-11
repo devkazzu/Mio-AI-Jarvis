@@ -94,6 +94,11 @@ sealed interface Action {
         override val label: String = "Go to Home screen"
     }
 
+    /** Open the system app list (Settings → Apps). */
+    data object AppList : Action {
+        override val label: String = "Show installed apps"
+    }
+
     data object PressBack : Action {
         override val label: String = "Go back"
     }

@@ -12,11 +12,15 @@ import com.mio.ai.system.AppLauncher
 import com.mio.ai.system.OpResult
 import com.mio.ai.system.SystemActions
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.coroutineContext
 
 /**
  * Action Engine: runs a validated [Plan] step-by-step, streaming progress to
- * the UI ("what Mio is doing right now") and stopping the chain on the first
- * failure with a plain-language explanation.
+ * the UI and stopping the chain on the first failure with a plain-language
+ * explanation. Cooperative cancellation (STOP button / "stop") is honored
+ * between steps, and every step is bounded by [stepTimeoutMs].
  */
 class ActionEngine(context: Context) {
 
@@ -28,13 +32,22 @@ class ActionEngine(context: Context) {
 
     suspend fun execute(
         plan: Plan,
+        stepTimeoutMs: Long,
         onStep: suspend (index: Int, state: StepState, outcome: StepOutcome?) -> Unit,
     ): PlanResult {
         val outcomes = ArrayList<StepOutcome>()
         for ((index, action) in plan.steps.withIndex()) {
+            coroutineContext.ensureActive()
             onStep(index, StepState.RUNNING, null)
             val op = try {
-                runAction(action)
+                withTimeoutOrNull(stepTimeoutMs.coerceIn(2_000L, 60_000L)) {
+                    runAction(action)
+                } ?: OpResult.fail(
+                    "“${action.label}” timed out after ${stepTimeoutMs / 1000} seconds.",
+                    "TIMEOUT",
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // STOP must propagate — the ViewModel marks the card.
             } catch (e: Exception) {
                 OpResult.fail("Something went wrong (${e.message}).", "UNKNOWN")
             }
@@ -89,6 +102,7 @@ class ActionEngine(context: Context) {
         is Action.OpenApp -> apps.launch(action.query, action.packageName)
         is Action.CloseCurrentApp -> apps.closeCurrentApp()
         is Action.GoHome -> goHome()
+        is Action.AppList -> system.listApps()
         is Action.PressBack -> a11y("go back") { AccessibilityController.pressBack() }
         is Action.OpenRecents -> a11y("open recent apps") { AccessibilityController.openRecents() }
 

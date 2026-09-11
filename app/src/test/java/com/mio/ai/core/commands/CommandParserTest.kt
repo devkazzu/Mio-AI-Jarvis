@@ -136,6 +136,7 @@ class CommandParserTest {
         assertTrue(planOf("close this app").plan.steps.single() is Action.CloseCurrentApp)
         assertTrue(planOf("go back").plan.steps.single() is Action.PressBack)
         assertTrue(planOf("go home").plan.steps.single() is Action.GoHome)
+        assertTrue(planOf("show my apps").plan.steps.single() is Action.AppList)
     }
 
     // ------------------------------------------------------- communication

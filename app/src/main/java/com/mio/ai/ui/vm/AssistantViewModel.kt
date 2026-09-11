@@ -11,10 +11,13 @@ import com.mio.ai.core.ai.ConversationStore
 import com.mio.ai.core.ai.LocalBrain
 import com.mio.ai.core.commands.CommandRouter
 import com.mio.ai.core.engine.ActionEngine
+import com.mio.ai.data.ListeningMode
 import com.mio.ai.data.MioSettings
 import com.mio.ai.voice.MioTts
 import com.mio.ai.voice.SpeechListener
 import com.mio.ai.voice.WakeWordService
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,10 +30,10 @@ import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
 import java.util.concurrent.atomic.AtomicLong
 
-/** Assistant status shown in the HUD (skill: sealed state, never boolean flags). */
+/** Assistant status shown across Home / Conversation / Actions. */
 enum class AssistantStatus { IDLE, LISTENING, THINKING, SPEAKING, EXECUTING, ERROR }
 
-enum class StepVisual { PENDING, RUNNING, DONE_OK, DONE_FAIL }
+enum class StepVisual { PENDING, RUNNING, DONE_OK, DONE_FAIL, CANCELLED }
 
 data class StepUi(val label: String, val state: StepVisual, val detail: String? = null)
 
@@ -45,13 +48,28 @@ data class ChatEntry(
     val steps: List<StepUi> = emptyList(),
     /** Set when a confirmation decision is still open on this card. */
     val awaitingConfirm: Boolean = false,
+    /** True while this card's plan is executing (STOP available). */
+    val running: Boolean = false,
+    /** True when the run was stopped by the user. */
+    val cancelled: Boolean = false,
     /** Permissions destination for the Fix button (SYSTEM entries). */
     val fixDestination: String? = null,
 )
 
+/** Completed (or stopped) run kept in the Actions log. */
+data class LoggedAction(
+    val id: Long,
+    val summary: String,
+    val atMillis: Long,
+    val steps: List<StepUi>,
+    val succeeded: Boolean,
+    val cancelled: Boolean,
+)
+
 /**
- * Orchestrates the whole assistant loop:
- * mic → speech → router → (confirm?) → engine → TTS, with live UI updates.
+ * Orchestrates the assistant loop: mic → speech → router → (confirm?) →
+ * engine → TTS, with live UI updates, STOP support, continuous listening,
+ * and a persistent action log.
  */
 class AssistantViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -70,6 +88,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     private val _entries = MutableStateFlow<List<ChatEntry>>(emptyList())
     val entries: StateFlow<List<ChatEntry>> = _entries.asStateFlow()
 
+    private val _actionLog = MutableStateFlow<List<LoggedAction>>(emptyList())
+    val actionLog: StateFlow<List<LoggedAction>> = _actionLog.asStateFlow()
+
     private val _partial = MutableStateFlow("")
     val partial: StateFlow<String> = _partial.asStateFlow()
 
@@ -86,22 +107,28 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     private val _cloudLabel = MutableStateFlow("Offline brain")
     val cloudLabel: StateFlow<String> = _cloudLabel.asStateFlow()
 
+    private val _ttsVoices = MutableStateFlow<List<String>>(emptyList())
+    val ttsVoices: StateFlow<List<String>> = _ttsVoices.asStateFlow()
+
     private val listener = SpeechListener(application.applicationContext)
     private val tts = MioTts(application.applicationContext)
     private val commandMutex = Mutex()
     private val ids = AtomicLong(1)
     private var speakJob: Job? = null
+    private var executionJob: Job? = null
+    private var noResultStreak = 0
     private var booted = false
 
     init {
         listener.onFinalResult = { handleUtterance(it) }
         listener.onError = { message, fatal -> onListenError(message, fatal) }
-        tts.init()
+        tts.init { refreshVoices() }
         viewModelScope.launch { listener.rms.collect { _rms.value = it } }
         viewModelScope.launch { listener.partial.collect { _partial.value = it } }
         viewModelScope.launch {
             settings.collect { s ->
                 tts.setRatePitch(s.speechRate, s.speechPitch)
+                if (s.ttsVoiceName.isNotBlank()) tts.setVoiceByName(s.ttsVoiceName)
                 val ai = app.resolveAi(s)
                 _cloudLabel.value =
                     if (ai.planner != null) "Cloud brain · ${ai.client.describe}" else "Offline brain"
@@ -113,10 +140,11 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     fun onBoot() {
         if (booted) return
         booted = true
+        if (!settings.value.keepHistory) conversation.clear()
         val name = settings.value.nickname?.let { ", $it" }.orEmpty()
         val hello = "Mio online$name. Tap the mic and tell me what to do."
         addEntry(EntryKind.ASSISTANT, hello)
-        speak(hello)
+        speak(hello, autoContinue = false)
     }
 
     /** Launched from the wake-word service. */
@@ -124,17 +152,24 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         if (_status.value == AssistantStatus.IDLE) onMicPress()
     }
 
+    private fun executionActive(): Boolean = executionJob?.isActive == true
+
     // ------------------------------------------------------------------- input
 
     fun onMicPress() {
         when (_status.value) {
             AssistantStatus.LISTENING -> {
                 listener.cancel()
-                _status.value = AssistantStatus.IDLE
                 _partial.value = ""
+                _status.value = if (executionActive()) AssistantStatus.EXECUTING else AssistantStatus.IDLE
             }
-            AssistantStatus.SPEAKING -> tts.stop().also { _status.value = AssistantStatus.IDLE }
-            AssistantStatus.THINKING, AssistantStatus.EXECUTING -> Unit // busy — ignore taps
+            AssistantStatus.SPEAKING -> {
+                speakJob?.cancel()
+                tts.stop()
+                _status.value = if (executionActive()) AssistantStatus.EXECUTING else AssistantStatus.IDLE
+            }
+            AssistantStatus.THINKING -> Unit // routing is instant — ignore taps
+            AssistantStatus.EXECUTING -> startListening() // listen pass so "stop" works by voice
             AssistantStatus.IDLE, AssistantStatus.ERROR -> startListening()
         }
     }
@@ -143,36 +178,46 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         tts.stop()
         if (!listener.hasPermission()) {
             _status.value = AssistantStatus.ERROR
-            addEntry(
-                EntryKind.SYSTEM,
-                "I need microphone access to hear you.",
-                fixDestination = "mic",
-            )
-            speak("I need microphone access to hear you. Tap Fix to grant it.")
+            addEntry(EntryKind.SYSTEM, "I need microphone access to hear you.", fixDestination = "mic")
+            speak("I need microphone access to hear you. Tap Fix to grant it.", autoContinue = false)
             return
         }
         if (!listener.isAvailable()) {
             _status.value = AssistantStatus.ERROR
             addEntry(EntryKind.SYSTEM, "No speech recognizer found on this device.")
-            speak("There's no speech recognizer on this device.")
+            speak("There's no speech recognizer on this device.", autoContinue = false)
             return
         }
         _partial.value = ""
         if (listener.startListening()) {
             _status.value = AssistantStatus.LISTENING
-        } else {
+        } else if (!executionActive()) {
             _status.value = AssistantStatus.ERROR
         }
     }
 
     private fun onListenError(message: String, fatal: Boolean) {
-        if (_status.value == AssistantStatus.LISTENING) _status.value = AssistantStatus.IDLE
-        _partial.value = ""
-        if (fatal) {
-            addEntry(EntryKind.SYSTEM, message, fixDestination = "mic")
+        if (_status.value == AssistantStatus.LISTENING) {
+            _status.value = if (executionActive()) AssistantStatus.EXECUTING else AssistantStatus.IDLE
         }
-        // Speak short failures so hands-free users aren't left guessing.
-        speak(message)
+        _partial.value = ""
+        val continuous = settings.value.listeningMode == ListeningMode.CONTINUOUS
+        if (fatal) {
+            noResultStreak = 0
+            addEntry(EntryKind.SYSTEM, message, fixDestination = "mic")
+            speak(message, autoContinue = false)
+            return
+        }
+        // Continuous mode: silently retry twice, then say so and stop the loop.
+        if (continuous) {
+            noResultStreak++
+            if (noResultStreak < 3) {
+                startListening()
+                return
+            }
+        }
+        noResultStreak = 0
+        speak(message, autoContinue = false)
     }
 
     /** Typed commands and quick actions take the same path as voice. */
@@ -183,9 +228,20 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         handleUtterance(t)
     }
 
+    /** Replay a Mio message out loud (Conversation screen). */
+    fun speakMessage(text: String) {
+        if (_status.value == AssistantStatus.LISTENING) listener.cancel()
+        speak(text, autoContinue = false)
+    }
+
+    fun refreshVoices() {
+        _ttsVoices.value = tts.englishVoiceNames()
+    }
+
     // ------------------------------------------------------------------ router
 
     private fun handleUtterance(text: String) {
+        noResultStreak = 0
         viewModelScope.launch {
             commandMutex.withLock { process(text) }
         }
@@ -195,65 +251,83 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _status.value = AssistantStatus.THINKING
         _partial.value = ""
         addEntry(EntryKind.USER, text)
-        conversation.addUser(text)
-
         val s = settings.value
+        val useMemory = s.memoryEnabled
+        if (useMemory) conversation.addUser(text)
+
         val runtime = app.resolveAi(s)
+        val history = if (useMemory) conversation.toChatMessages(s.historyDepth) else emptyList()
         val decision = try {
-            runtime.router.route(text, conversation.toChatMessages())
+            runtime.router.route(text, history)
         } catch (e: Exception) {
             CommandRouter.Decision.Say("My router glitched (${e.message}). Try again?")
         }
 
+        // An execution is running: only "stop" (or no) interrupts it.
+        if (executionActive()) {
+            when (decision) {
+                is CommandRouter.Decision.Cancel, is CommandRouter.Decision.ConfirmNo -> stopExecution()
+                else -> {
+                    val busy = "Still working on it — say “stop” to cancel."
+                    addEntry(EntryKind.ASSISTANT, busy)
+                    speak(busy, autoContinue = false)
+                    if (_status.value == AssistantStatus.SPEAKING || _status.value == AssistantStatus.THINKING) {
+                        // speak() will set SPEAKING; restore EXECUTING right after it starts.
+                        _status.value = AssistantStatus.EXECUTING
+                    }
+                }
+            }
+            return
+        }
+
         when (decision) {
             is CommandRouter.Decision.DoPlan -> {
-                // A fresh command supersedes any stale pending confirmation.
                 _pendingPlan.value = null
                 clearAwaitingFlags()
                 if (decision.plan.requiresConfirmation && s.confirmations) {
-                    askConfirmation(decision.plan)
+                    askConfirmation(decision.plan, useMemory)
                 } else {
-                    runPlan(decision.plan)
+                    runPlan(decision.plan, useMemory)
                 }
             }
-            is CommandRouter.Decision.Say -> say(decision.text)
+            is CommandRouter.Decision.Say -> say(decision.text, useMemory, autoContinue = true)
             is CommandRouter.Decision.ConverseLocal -> {
                 val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                 val reply = LocalBrain.reply(
                     decision.text,
-                    LocalBrain.Context(s.nickname, hour, runtime.planner != null),
+                    LocalBrain.Context(s.nickname, hour, runtime.planner != null, s.responseStyle),
                 )
-                say(reply)
+                say(reply, useMemory, autoContinue = true)
             }
             is CommandRouter.Decision.SetNickname -> {
                 app.settingsRepo.setNickname(decision.name)
-                say("Got it — I'll call you ${decision.name} from now on.")
+                say("Got it — I'll call you ${decision.name} from now on.", useMemory, autoContinue = true)
             }
             is CommandRouter.Decision.ConfirmYes -> {
                 val pending = _pendingPlan.value
                 if (pending != null) {
                     _pendingPlan.value = null
                     clearAwaitingFlags()
-                    runPlan(pending)
+                    runPlan(pending, useMemory)
                 } else {
-                    say("There's nothing waiting for confirmation.")
+                    say("There's nothing waiting for confirmation.", useMemory, autoContinue = true)
                 }
             }
             is CommandRouter.Decision.ConfirmNo, is CommandRouter.Decision.Cancel -> {
                 if (_pendingPlan.value != null) {
                     _pendingPlan.value = null
                     clearAwaitingFlags()
-                    say("Okay, cancelled.")
+                    say("Okay, cancelled.", useMemory, autoContinue = true)
                 } else {
                     tts.stop()
                     _status.value = AssistantStatus.IDLE
-                    say("Okay.")
+                    say("Okay.", useMemory, autoContinue = false)
                 }
             }
         }
     }
 
-    private suspend fun askConfirmation(plan: Plan) {
+    private suspend fun askConfirmation(plan: Plan, useMemory: Boolean) {
         _pendingPlan.value = plan
         val prompt = plan.confirmationPrompt ?: "Go ahead with: ${plan.summary}?"
         addEntry(
@@ -261,8 +335,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             steps = plan.steps.map { StepUi(it.label, StepVisual.PENDING) },
             awaitingConfirm = true,
         )
-        conversation.addAssistant(prompt)
-        speak(prompt)
+        if (useMemory) conversation.addAssistant(prompt)
+        speak(prompt, autoContinue = true)
     }
 
     fun confirmPending() {
@@ -271,7 +345,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 val pending = _pendingPlan.value ?: return@withLock
                 _pendingPlan.value = null
                 clearAwaitingFlags()
-                runPlan(pending)
+                runPlan(pending, settings.value.memoryEnabled)
             }
         }
     }
@@ -282,70 +356,121 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 if (_pendingPlan.value == null) return@withLock
                 _pendingPlan.value = null
                 clearAwaitingFlags()
-                say("Okay, cancelled.")
+                say("Okay, cancelled.", settings.value.memoryEnabled, autoContinue = true)
             }
         }
     }
 
-    private suspend fun runPlan(plan: Plan) {
+    // --------------------------------------------------------------- execution
+
+    private suspend fun runPlan(plan: Plan, useMemory: Boolean) {
         _status.value = AssistantStatus.EXECUTING
         val entryId = ids.getAndIncrement()
         _entries.value = _entries.value + ChatEntry(
             id = entryId, kind = EntryKind.ACTION, text = plan.summary, plan = plan,
             steps = plan.steps.map { StepUi(it.label, StepVisual.PENDING) },
+            running = true,
         )
         trimEntries()
 
-        val result = engine.execute(plan) { index, state, outcome ->
-            _ticker.value = when (state) {
-                ActionEngine.StepState.RUNNING -> plan.steps[index].label
-                ActionEngine.StepState.DONE -> null
+        val timeoutMs = settings.value.actionTimeoutSec * 1000L
+        executionJob = viewModelScope.launch {
+            try {
+                val result = engine.execute(plan, timeoutMs) { index, state, outcome ->
+                    _ticker.value = when (state) {
+                        ActionEngine.StepState.RUNNING -> plan.steps[index].label
+                        ActionEngine.StepState.DONE -> null
+                    }
+                    updateSteps(entryId, index, state, outcome)
+                }
+                _ticker.value = null
+                finishEntry(entryId, cancelled = false)
+                logAction(entryId, plan, cancelled = false)
+                if (useMemory) conversation.addAssistant(result.spokenSummary)
+                result.steps.firstOrNull { !it.success && it.fixDestination != null }?.let { failed ->
+                    addEntry(EntryKind.SYSTEM, failed.detail, fixDestination = failed.fixDestination)
+                }
+                if (result.allSucceeded && result.steps.size == 1 &&
+                    result.steps.first().action is com.mio.ai.core.actions.Action.QueryDeviceStatus
+                ) {
+                    addEntry(EntryKind.ASSISTANT, result.steps.first().detail)
+                }
+                speak(result.spokenSummary, autoContinue = true)
+            } catch (_: CancellationException) {
+                _ticker.value = null
+                finishEntry(entryId, cancelled = true)
+                logAction(entryId, plan, cancelled = true)
+                if (_status.value == AssistantStatus.EXECUTING) _status.value = AssistantStatus.IDLE
+                speak("Stopped.", autoContinue = false)
             }
-            updateSteps(entryId, index, state, outcome)
         }
-
-        _ticker.value = null
-        conversation.addAssistant(result.spokenSummary)
-
-        // Surface permission/service failures with a one-tap Fix.
-        result.steps.firstOrNull { !it.success && it.fixDestination != null }?.let { failed ->
-            addEntry(
-                EntryKind.SYSTEM,
-                failed.detail,
-                fixDestination = failed.fixDestination,
-            )
-        }
-        if (result.allSucceeded && result.steps.size == 1 &&
-            result.steps.first().action is com.mio.ai.core.actions.Action.QueryDeviceStatus
-        ) {
-            // Status readouts also deserve a visible card, not just speech.
-            addEntry(EntryKind.ASSISTANT, result.steps.first().detail)
-        }
-        speak(result.spokenSummary)
     }
 
-    private suspend fun say(text: String) {
+    /** STOP button / "stop": cooperatively cancel the running plan. */
+    fun stopExecution() {
+        val job = executionJob
+        if (job?.isActive == true) {
+            job.cancel()
+        } else if (_status.value == AssistantStatus.EXECUTING) {
+            _status.value = AssistantStatus.IDLE
+        }
+    }
+
+    fun clearActionLog() {
+        _actionLog.value = emptyList()
+    }
+
+    private fun logAction(entryId: Long, plan: Plan, cancelled: Boolean) {
+        val entry = _entries.value.firstOrNull { it.id == entryId }
+        val steps = entry?.steps ?: plan.steps.map { StepUi(it.label, StepVisual.CANCELLED) }
+        val succeeded = !cancelled && steps.isNotEmpty() && steps.all { it.state == StepVisual.DONE_OK }
+        _actionLog.value = (
+            _actionLog.value + LoggedAction(
+                id = ids.getAndIncrement(),
+                summary = plan.summary,
+                atMillis = entry?.atMillis ?: System.currentTimeMillis(),
+                steps = steps,
+                succeeded = succeeded,
+                cancelled = cancelled,
+            )
+            ).takeLast(50)
+    }
+
+    private suspend fun say(text: String, useMemory: Boolean, autoContinue: Boolean) {
         addEntry(EntryKind.ASSISTANT, text)
-        conversation.addAssistant(text)
-        speak(text)
+        if (useMemory) conversation.addAssistant(text)
+        speak(text, autoContinue)
     }
 
     // --------------------------------------------------------------------- tts
 
-    private fun speak(text: String) {
+    private fun speak(text: String, autoContinue: Boolean) {
         speakJob?.cancel()
-        val voiceOn = settings.value.voiceReplies
-        if (!voiceOn) {
+        val continuous = settings.value.listeningMode == ListeningMode.CONTINUOUS
+        if (!settings.value.voiceReplies) {
             _status.value = AssistantStatus.IDLE
+            if (autoContinue && continuous) startListening()
             return
         }
         _status.value = AssistantStatus.SPEAKING
         speakJob = viewModelScope.launch {
-            // Bridge the callback API into status updates.
-            val done = kotlinx.coroutines.CompletableDeferred<Unit>()
-            tts.speak(text, enabled = true, flush = true) { done.complete(Unit) }
-            done.await()
-            if (_status.value == AssistantStatus.SPEAKING) _status.value = AssistantStatus.IDLE
+            try {
+                val done = CompletableDeferred<Unit>()
+                tts.speak(text, enabled = true, flush = true) {
+                    if (!done.isCompleted) done.complete(Unit)
+                }
+                done.await()
+                if (_status.value == AssistantStatus.SPEAKING) {
+                    if (executionActive()) {
+                        _status.value = AssistantStatus.EXECUTING
+                    } else {
+                        _status.value = AssistantStatus.IDLE
+                        if (autoContinue && continuous) startListening()
+                    }
+                }
+            } catch (_: CancellationException) {
+                // Superseded by a newer utterance or stopped — caller owns status.
+            }
         }
     }
 
@@ -393,6 +518,24 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    private fun finishEntry(entryId: Long, cancelled: Boolean) {
+        _entries.value = _entries.value.map { e ->
+            if (e.id != entryId) return@map e
+            val steps = if (cancelled) {
+                e.steps.map { s ->
+                    if (s.state == StepVisual.PENDING || s.state == StepVisual.RUNNING) {
+                        s.copy(state = StepVisual.CANCELLED)
+                    } else {
+                        s
+                    }
+                }
+            } else {
+                e.steps
+            }
+            e.copy(running = false, cancelled = cancelled, steps = steps)
+        }
+    }
+
     private fun clearAwaitingFlags() {
         _entries.value = _entries.value.map { it.copy(awaitingConfirm = false) }
     }
@@ -402,7 +545,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearHistory() {
         conversation.clear()
         _entries.value = emptyList()
-        addEntry(EntryKind.SYSTEM, "History cleared. Fresh start.")
+        _actionLog.value = emptyList()
     }
 
     fun setWakeWord(on: Boolean) {
@@ -413,7 +556,6 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun syncWakeService() {
-        // Called on boot of the UI: keep the service matching the toggle.
         viewModelScope.launch {
             if (settings.value.wakeWord) WakeWordService.start(getApplication())
         }

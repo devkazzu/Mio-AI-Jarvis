@@ -9,53 +9,39 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.mio.ai.ui.theme.mioColors
+import com.mio.ai.ui.theme.mioFx
 
 /**
- * Full-screen HUD backdrop: deep-space gradient, faint technical grid,
- * scanlines and a violet vignette. Pure Canvas — no assets needed.
+ * Quiet cinematic backdrop: near-black gradient, a whisper of cyan aura
+ * up top, soft vignette. No grid, no scanlines — restraint is the identity.
  */
 @Composable
 fun HudBackground(modifier: Modifier = Modifier) {
     val mio = mioColors
+    val fx = mioFx
     Box(modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize()) {
-            // Base gradient.
             drawRect(
-                brush = Brush.verticalGradient(
-                    listOf(mio.void, mio.abyss, mio.void),
-                ),
+                brush = Brush.verticalGradient(listOf(mio.void, mio.base, mio.void)),
             )
-            // Violet aura top-center.
             drawRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        mio.secondary.copy(alpha = 0.10f),
+                        mio.accent.copy(alpha = 0.055f * fx.accentIntensity),
                         Color.Transparent,
                     ),
-                    center = Offset(size.width / 2f, -size.height * 0.05f),
-                    radius = size.width * 0.9f,
+                    center = Offset(size.width / 2f, -size.height * 0.08f),
+                    radius = size.width * 0.95f,
                 ),
             )
-            // Technical grid.
-            val step = 96f
-            val gridColor = mio.primary.copy(alpha = 0.045f)
-            var x = 0f
-            while (x <= size.width) {
-                drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 1f)
-                x += step
-            }
-            var y = 0f
-            while (y <= size.height) {
-                drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 1f)
-                y += step
-            }
-            // Scanlines.
-            val scan = Color.White.copy(alpha = 0.012f)
-            var sy = 0f
-            while (sy <= size.height) {
-                drawLine(scan, Offset(0f, sy), Offset(size.width, sy), 1f)
-                sy += 5f
-            }
+            // Gentle vignette for depth.
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)),
+                    center = Offset(size.width / 2f, size.height / 2f),
+                    radius = maxOf(size.width, size.height) * 0.75f,
+                ),
+            )
         }
     }
 }

@@ -252,6 +252,9 @@ class SystemActions(private val context: Context) {
     fun showAlarms(): OpResult =
         fire(Intent(AlarmClock.ACTION_SHOW_ALARMS), "Opening your alarms.")
 
+    fun listApps(): OpResult =
+        fire(Intent(Settings.ACTION_APPLICATION_SETTINGS), "Showing your installed apps.")
+
     fun setTimer(seconds: Int, label: String?): OpResult {
         val intent = Intent(AlarmClock.ACTION_SET_TIMER)
             .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
