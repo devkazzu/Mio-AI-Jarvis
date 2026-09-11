@@ -26,8 +26,8 @@ class SpeechListener(private val context: Context) {
     val state: StateFlow<State> = _state.asStateFlow()
 
     /** Mic level 0..1 derived from [RecognitionListener.onRmsChanged]. */
-    private val _rms01 = MutableStateFlow(0f)
-    val rms01: StateFlow<Float> = _rms01.asStateFlow()
+    private val _rms = MutableStateFlow(0f)
+    val rms: StateFlow<Float> = _rms.asStateFlow()
 
     private val _partial = MutableStateFlow("")
     val partial: StateFlow<String> = _partial.asStateFlow()
@@ -70,7 +70,7 @@ class SpeechListener(private val context: Context) {
                 putExtra("android.speech.extra.DICTATION_MODE", true)
             }
             _partial.value = ""
-            _rms01.value = 0f
+            _rms.value = 0f
             _state.value = State.LISTENING
             sr.startListening(intent)
             return true
@@ -88,7 +88,7 @@ class SpeechListener(private val context: Context) {
     fun cancel() {
         runCatching { recognizer?.cancel() }
         _state.value = State.IDLE
-        _rms01.value = 0f
+        _rms.value = 0f
     }
 
     fun destroy() {
@@ -111,7 +111,7 @@ class SpeechListener(private val context: Context) {
 
         override fun onRmsChanged(rmsdB: Float) {
             // rmsdB is roughly 0..10 — normalize with a little headroom.
-            _rms01.value = (rmsdB / 9f).coerceIn(0f, 1f)
+            _rms.value = (rmsdB / 9f).coerceIn(0f, 1f)
         }
 
         override fun onBufferReceived(buffer: ByteArray?) = Unit
@@ -125,7 +125,7 @@ class SpeechListener(private val context: Context) {
 
         override fun onResults(results: Bundle?) {
             _state.value = State.IDLE
-            _rms01.value = 0f
+            _rms.value = 0f
             val text = results
                 ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 ?.firstOrNull()?.trim().orEmpty()
@@ -139,7 +139,7 @@ class SpeechListener(private val context: Context) {
 
         override fun onError(code: Int) {
             _state.value = State.IDLE
-            _rms01.value = 0f
+            _rms.value = 0f
             destroyRecognizer()
             // Debounce flurries (some engines emit ERROR_NO_MATCH repeatedly).
             val now = android.os.SystemClock.uptimeMillis()

@@ -717,10 +717,3 @@ object CommandParser {
         }
     }
 }
-         out += tokens[i]
-                i++
-            }
-            return out.joinToString(" ")
-        }
-    }
-}

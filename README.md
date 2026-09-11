@@ -122,12 +122,17 @@ there automatically (`TAP TO FIX →`).
 2. **Device**: “turn on the flashlight” → torch lights; “mute” → volume mutes.
 3. **Apps**: “open YouTube” → launches; “go home” → returns.
 4. **Confirmation**: “call mom” (or any number) → Mio asks first; say “yes” → dialer opens pre-filled.
-5. **Multi-step** (enable UI Control first): “open YouTube, search for lo-fi beats”.
+5. **Multi-step** (enable UI Control first): “open YouTube, search for lo-fi beats” → timeline
+   streams; tap **Stop** mid-run → card marks remaining steps cancelled.
 6. **Failure path**: revoke Camera → “flashlight on” → Mio explains + offers Fix.
 7. **Offline**: airplane mode, no API key → commands + “tell me a joke” still work.
 8. **Cloud** (optional): set key → ask anything open-ended → contextual reply; follow-ups use history.
-9. **Wake word** (optional): Settings → enable → background the app → say “Hey Mio”.
-10. **Unit tests**: `./gradlew :app:testDebugUnitTest` → all green.
+9. **Conversation/Activity**: open Chat → replay a Mio message; open Activity → expand a past run.
+10. **Appearance**: Settings → try Abyss theme, accent intensity, and Animation Off (orb/wave go static).
+11. **Voice picker + continuous mode**: Settings → Voice → pick a device voice; Listening mode →
+    Continuous → replies auto re-listen (says “stop” handling included).
+12. **Wake word** (optional): Settings → enable → background the app → say “Hey Mio”.
+13. **Unit tests**: `./gradlew :app:testDebugUnitTest` → all green.
 
 ---
 
