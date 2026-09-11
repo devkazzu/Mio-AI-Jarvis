@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
 import java.util.concurrent.atomic.AtomicLong
@@ -455,11 +456,14 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _status.value = AssistantStatus.SPEAKING
         speakJob = viewModelScope.launch {
             try {
-                val done = CompletableDeferred<Unit>()
-                tts.speak(text, enabled = true, flush = true) {
-                    if (!done.isCompleted) done.complete(Unit)
+                // One silent retry: a transient engine hiccup must never strand the user.
+                var err = attemptSpeak(text)
+                if (err != null) err = attemptSpeak(text)
+                if (err != null) {
+                    // Voice failed twice — the reply is already visible as text; note it once.
+                    // Never speak() the fallback itself: the engine is what just failed.
+                    addEntry(EntryKind.SYSTEM, err)
                 }
-                done.await()
                 if (_status.value == AssistantStatus.SPEAKING) {
                     if (executionActive()) {
                         _status.value = AssistantStatus.EXECUTING
@@ -472,6 +476,27 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 // Superseded by a newer utterance or stopped — caller owns status.
             }
         }
+    }
+
+    /**
+     * Speaks once with a bounded wait. Returns null when spoken, otherwise a
+     * user-facing reason ("Speech unavailable …" / "Speech error …"). Engine
+     * failures never throw here (only cancellation propagates), and the wait
+     * is time-boxed so status can never wedge in SPEAKING.
+     */
+    private suspend fun attemptSpeak(text: String): String? {
+        val done = CompletableDeferred<Unit>()
+        var failed: String? = null
+        tts.speak(
+            text, enabled = true, flush = true,
+            onDone = { if (!done.isCompleted) done.complete(Unit) },
+            onError = { failed = it },
+        )
+        // ~speaking rate with headroom: status always returns even if the engine goes silent.
+        val budgetMs = (text.length * 100L).coerceIn(30_000L, 150_000L)
+        withTimeoutOrNull(budgetMs) { done.await() }
+            ?: return "Speech timed out — showing text instead."
+        return failed
     }
 
     // ------------------------------------------------------------------ entries
