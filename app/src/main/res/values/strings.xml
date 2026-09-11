@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mio AI</string>
+    <string name="accessibility_service_label">Mio AI UI Control</string>
+    <string name="accessibility_service_description">Lets Mio carry out your voice commands inside other apps: tapping buttons, scrolling, typing and navigating. Mio only acts when you ask it to.</string>
+    <string name="wake_channel_name">Mio listening</string>
+    <string name="wake_channel_desc">Shows while the optional “Hey Mio” wake-word listener is active.</string>
+    <string name="wake_notification_title">Mio is listening for “Hey Mio”</string>
+    <string name="wake_notification_text">Tap to open Mio AI. Turn off in Settings → Wake word.</string>
+</resources>

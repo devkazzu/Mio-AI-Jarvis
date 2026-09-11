@@ -1,0 +1,23 @@
+# Mio AI Jarvis — root
+.gradle/
+build/
+local.properties
+*.iml
+.DS_Store
+
+# Android / Gradle
+/app/build/
+/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+*.keystore
+!debug.keystore
+
+# Skill + design tooling caches
+__pycache__/
+*.pyc
+
+# Agentaisse scratch
+.tmp/

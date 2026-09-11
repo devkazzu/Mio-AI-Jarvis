@@ -1,0 +1,13 @@
+# Copy this file to `local.properties` (same folder) and fill in your values.
+# `local.properties` is git-ignored — secrets never go into source control.
+#
+# Android SDK location (Android Studio normally generates this automatically):
+# sdk.dir=/Users/you/Library/Android/sdk
+
+# --- Mio AI cloud brain (OpenAI-compatible Chat Completions) ---
+# Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, Ollama, LM Studio,
+# OpenRouter, Together, Groq...). Leave blank to run fully offline with the
+# built-in local brain (commands + personality replies still work).
+MIO_AI_BASE_URL=https://api.openai.com/v1
+MIO_AI_API_KEY=
+MIO_AI_MODEL=gpt-4o-mini
