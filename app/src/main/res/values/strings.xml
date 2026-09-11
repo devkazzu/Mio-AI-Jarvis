@@ -7,4 +7,7 @@
     <string name="wake_channel_desc">Shows while the optional “Hey Mio” wake-word listener is active.</string>
     <string name="wake_notification_title">Mio is listening for “Hey Mio”</string>
     <string name="wake_notification_text">Tap to open Mio AI. Turn off in Settings → Wake word.</string>
+    <string name="assistant_channel_name">Mio background assistant</string>
+    <string name="assistant_channel_desc">Shows while the background assistant and floating orb are active.</string>
+    <string name="assistant_notification_title">Mio assistant</string>
 </resources>

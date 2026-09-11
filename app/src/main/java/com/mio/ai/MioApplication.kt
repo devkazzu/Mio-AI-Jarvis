@@ -5,6 +5,7 @@ import com.mio.ai.core.ai.AiClient
 import com.mio.ai.core.ai.ConversationStore
 import com.mio.ai.core.ai.LlmPlanner
 import com.mio.ai.core.ai.OpenAiCompatibleClient
+import com.mio.ai.assistant.AssistantCore
 import com.mio.ai.core.commands.CommandRouter
 import com.mio.ai.core.engine.ActionEngine
 import com.mio.ai.data.MioSettings
@@ -31,6 +32,13 @@ class MioApplication : Application() {
         ConversationStore(File(filesDir, "conversation.json"))
     }
     val engine by lazy { ActionEngine(this) }
+
+    /**
+     * The one assistant pipeline (mic → router → engine → TTS), shared by the
+     * activity UI and the background service so there is never a second
+     * recognizer/TTS fighting for the microphone or audio focus.
+     */
+    val assistant by lazy { AssistantCore(this) }
 
     fun resolveAi(settings: MioSettings): AiRuntime {
         val baseUrl = settings.aiBaseUrlOverride.ifBlank { BuildConfig.MIO_AI_BASE_URL }

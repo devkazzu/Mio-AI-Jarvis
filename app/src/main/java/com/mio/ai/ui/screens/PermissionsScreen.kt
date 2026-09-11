@@ -178,8 +178,8 @@ fun PermissionsScreen(highlight: String?, onBack: () -> Unit) {
                 }
                 item {
                     InfoNote(
-                        "Mio doesn't need draw-over-apps permission — everything happens " +
-                            "in this app or inside the app you're commanding.",
+                        "The floating icon uses draw-over-apps only while Background assistant " +
+                            "is on (Settings → Background). Turn it off and the icon is gone.",
                     )
                 }
                 item {
@@ -222,7 +222,7 @@ private fun buildRows(ctx: Context, request: (String) -> Unit): List<PermRow> {
             id = "notifications",
             title = "Notifications",
             why = if (notifNeeded) {
-                "Shows the wake-word listener while it's running."
+                "Shows the wake-word listener and background assistant while they run."
             } else {
                 "Not required below Android 13."
             },
@@ -280,6 +280,14 @@ private fun buildRows(ctx: Context, request: (String) -> Unit): List<PermRow> {
                 ?.isNotificationPolicyAccessGranted == true,
             actionLabel = "Open Settings",
             onAction = { openScreen(ctx, Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS) },
+        ),
+        PermRow(
+            id = "overlay",
+            title = "Display over other apps",
+            why = "Floating Mio icon. Only used while Background assistant is on.",
+            granted = Settings.canDrawOverlays(ctx),
+            actionLabel = "Open Settings",
+            onAction = { openScreen(ctx, Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackage = true) },
         ),
         PermRow(
             id = "accessibility",

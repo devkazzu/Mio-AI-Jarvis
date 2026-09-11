@@ -24,6 +24,8 @@ data class MioSettings(
     // Behavior
     val confirmations: Boolean = true,
     val wakeWord: Boolean = false,
+    // Background assistant (foreground service + floating orb)
+    val backgroundAssistant: Boolean = false,
     // AI
     val useCloudAi: Boolean = true,
     val aiBaseUrlOverride: String = "",
@@ -93,6 +95,7 @@ class SettingsRepository(private val context: Context) {
         val LISTEN_MODE = stringPreferencesKey("listening_mode")
         val CONFIRM = booleanPreferencesKey("confirmations")
         val WAKE = booleanPreferencesKey("wake_word")
+        val BG_ASSISTANT = booleanPreferencesKey("background_assistant")
         val CLOUD = booleanPreferencesKey("use_cloud_ai")
         val URL = stringPreferencesKey("ai_base_url")
         val MODEL = stringPreferencesKey("ai_model")
@@ -118,6 +121,7 @@ class SettingsRepository(private val context: Context) {
                 ?: ListeningMode.TAP,
             confirmations = p[Keys.CONFIRM] ?: true,
             wakeWord = p[Keys.WAKE] ?: false,
+            backgroundAssistant = p[Keys.BG_ASSISTANT] ?: false,
             useCloudAi = p[Keys.CLOUD] ?: true,
             aiBaseUrlOverride = p[Keys.URL].orEmpty(),
             aiModelOverride = p[Keys.MODEL].orEmpty(),
@@ -147,6 +151,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setListeningMode(mode: String) = context.mioDataStore.edit { it[Keys.LISTEN_MODE] = mode }
     suspend fun setConfirmations(on: Boolean) = context.mioDataStore.edit { it[Keys.CONFIRM] = on }
     suspend fun setWakeWord(on: Boolean) = context.mioDataStore.edit { it[Keys.WAKE] = on }
+    suspend fun setBackgroundAssistant(on: Boolean) = context.mioDataStore.edit { it[Keys.BG_ASSISTANT] = on }
     suspend fun setUseCloudAi(on: Boolean) = context.mioDataStore.edit { it[Keys.CLOUD] = on }
     suspend fun setResponseStyle(style: String) = context.mioDataStore.edit { it[Keys.STYLE] = style }
     suspend fun setMemoryEnabled(on: Boolean) = context.mioDataStore.edit { it[Keys.MEMORY] = on }

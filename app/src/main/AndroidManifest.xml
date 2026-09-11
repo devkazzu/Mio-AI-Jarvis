@@ -34,6 +34,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Floating Mio orb — used only while Background assistant is on -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Optional: alarm clock intents need no permission, but exact reminder hooks do -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SET_ALARM" />
@@ -104,6 +106,12 @@
         <!-- Optional always-listening "Hey Mio" wake word (user toggle, battery-aware). -->
         <service
             android:name=".voice.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Background assistant: floating orb + voice over other apps (user toggle). -->
+        <service
+            android:name=".assistant.AssistantService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
     </application>

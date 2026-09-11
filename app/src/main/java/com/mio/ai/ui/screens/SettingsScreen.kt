@@ -1,5 +1,8 @@
 package com.mio.ai.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -50,6 +53,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mio.ai.BuildConfig
 import com.mio.ai.MioApplication
@@ -102,6 +106,7 @@ fun SettingsScreen(
     vm: AssistantViewModel,
     onBack: () -> Unit,
     onOpenPermissions: (highlight: String?) -> Unit,
+    onOpenOverlay: () -> Unit,
     onOpenLicenses: () -> Unit,
     onHelp: () -> Unit,
 ) {
@@ -412,6 +417,43 @@ fun SettingsScreen(
                     selected = settings.listeningMode,
                     onSelect = { scope.launch { app.settingsRepo.setListeningMode(it) } },
                 )
+                MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
+
+                // ------------------------------------------------ Background
+                SectionHeader(title = "Background")
+                val bgRunning by vm.backgroundRunning.collectAsStateWithLifecycle()
+                val overlayOkBg = Settings.canDrawOverlays(ctx)
+                val micOkBg = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+                SettingRow(
+                    title = "Background assistant",
+                    desc = when {
+                        bgRunning -> "Running — orb floats over other apps."
+                        settings.backgroundAssistant -> "Starting…"
+                        else -> "Floating orb + voice over other apps."
+                    },
+                    onToggle = {
+                        if (!settings.backgroundAssistant && (!overlayOkBg || !micOkBg)) {
+                            onOpenOverlay()
+                        } else {
+                            vm.setBackgroundAssistant(!settings.backgroundAssistant)
+                        }
+                    },
+                ) {
+                    MioToggle(settings.backgroundAssistant) { on ->
+                        if (on && (!overlayOkBg || !micOkBg)) {
+                            onOpenOverlay()
+                        } else {
+                            vm.setBackgroundAssistant(on)
+                        }
+                    }
+                }
+                SecondaryButton(
+                    "Floating icon setup",
+                    onOpenOverlay,
+                    Modifier.fillMaxWidth(), compact = true,
+                )
+                InfoNote("Shows a persistent notification while running. Stop anytime here or from the notification.")
                 MioDivider(Modifier.fillMaxWidth().height(1.dp).padding(vertical = dim.sm))
 
                 // ----------------------------------------------- Automation
