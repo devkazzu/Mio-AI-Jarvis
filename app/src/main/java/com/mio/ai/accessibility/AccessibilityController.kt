@@ -386,6 +386,26 @@ object AccessibilityController {
         return found
     }
 
+    /**
+     * Single-scan fallback for TypeText(submit): tap a visible IME-style
+     * affordance. False when none is on screen — the typed text remains.
+     */
+    private fun tapImeAction(): Boolean {
+        val svc = service ?: return false
+        val root = runCatching { svc.rootInActiveWindow }.getOrNull() ?: return false
+        val labels = setOf("search", "go", "send", "done", "enter")
+        val node = findNode(root) { n ->
+            val t = (
+                runCatching { n.text?.toString() }.getOrNull().orEmpty() + " " +
+                    runCatching { n.contentDescription?.toString() }.getOrNull().orEmpty()
+                ).trim().lowercase()
+            t in labels
+        } ?: return false
+        val clicked = clickNode(node)
+        runCatching { node.recycle() }
+        return clicked
+    }
+
     /** Clicks the node or its nearest clickable ancestor (recycles borrowed parents). */
     private fun clickNode(node: AccessibilityNodeInfo): Boolean {
         var cursor: AccessibilityNodeInfo = node

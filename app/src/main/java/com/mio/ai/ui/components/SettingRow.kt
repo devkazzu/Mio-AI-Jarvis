@@ -83,7 +83,7 @@ fun SettingRow(
 
 /** Styled toggle with a guaranteed 48dp touch target. */
 @Composable
-fun MioToggle(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+fun MioToggle(checked: Boolean, modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
     val mio = mioColors
     Box(modifier.height(48.dp), contentAlignment = Alignment.Center) {
         Switch(
@@ -101,6 +101,7 @@ fun MioToggle(checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier 
 }
 
 /** Segmented single-choice options (theme, style, mode…). */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> SegmentedOptions(
     options: List<Pair<T, String>>,

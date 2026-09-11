@@ -6,6 +6,7 @@ import com.mio.ai.core.actions.ScrollDirection
 import com.mio.ai.core.actions.Switch
 import com.mio.ai.core.actions.VolumeDirection
 import com.mio.ai.core.util.MiniJson
+import com.mio.ai.data.ResponseStyle
 
 /**
  * Cloud planner: converts free-form utterances the rule parser couldn't map
@@ -13,7 +14,7 @@ import com.mio.ai.core.util.MiniJson
  * [LlmPlanParser] disposes: unknown action types or bad params fail closed
  * to a normal chat reply, never to a guessed action.
  */
-class LlmPlanner(private val client: AiClient) {
+class LlmPlanner(private val client: AiClient, private val style: String = ResponseStyle.BALANCED) {
 
     sealed interface Decision {
         data class DoPlan(val plan: Plan) : Decision
@@ -23,7 +24,11 @@ class LlmPlanner(private val client: AiClient) {
     suspend fun decide(userText: String, history: List<ChatMessage>): Decision? {
         if (!client.isConfigured) return null
         val raw = try {
-            client.chat(history.takeLast(8) + ChatMessage(ChatMessage.Role.USER, userText), SYSTEM)
+            client.chat(
+                history.takeLast(8) + ChatMessage(ChatMessage.Role.USER, userText),
+                systemPrompt(),
+                ResponseStyle.maxTokens(style),
+            )
         } catch (_: AiException) {
             return null
         }
