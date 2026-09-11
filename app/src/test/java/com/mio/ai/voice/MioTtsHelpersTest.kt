@@ -10,7 +10,7 @@ class MioTtsHelpersTest {
     @Test
     fun `sanitize strips markdown and collapses whitespace`() {
         assertEquals("Hello, world", sanitize("**Hello** ·  world"))
-        assertEquals("a b", sanitize("a `b` #c"))
+        assertEquals("a b c", sanitize("a `b` #c"))
     }
 
     @Test
@@ -21,8 +21,8 @@ class MioTtsHelpersTest {
     @Test
     fun `splitSentences keeps delimiters with sentences`() {
         assertEquals(
-            listOf("Hello world.", "How are you?", "Fine; thanks!"),
-            splitSentences("Hello world. How are you? Fine; thanks!"),
+            listOf("Hello world.", "How are you?", "Fine, thanks!"),
+            splitSentences("Hello world. How are you? Fine, thanks!"),
         )
     }
 

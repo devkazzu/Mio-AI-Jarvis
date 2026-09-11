@@ -137,7 +137,11 @@ object AppCatalog {
             if (overlap == qTokens.size && overlap == nTokens.size) return 95
             if (overlap > 0) return 50 + 10 * overlap
         }
-        if (name.contains(query) || query.contains(name)) return 40
+        // Contains fallback needs a 4+ char overlap — short aliases ("ig",
+        // "yt") would otherwise false-match inside long nonsense queries.
+        if ((name.contains(query) || query.contains(name)) && minOf(name.length, query.length) >= 4) {
+            return 40
+        }
         return 0
     }
 

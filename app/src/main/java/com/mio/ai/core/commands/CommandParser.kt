@@ -571,6 +571,16 @@ object CommandParser {
     private fun percentOf(s: String): Int? {
         Regex("(\\d{1,3})\\s*(percent|%)").find(s)?.let { return it.groupValues[1].toIntOrNull() }
         if (s.contains("half")) return 50
+        // Bare number: "set volume to 40", "brightness 70". percentOf only
+        // runs in volume/brightness contexts, so a bare 0–100 is a percent.
+        val tokens = s.split(' ')
+        for (i in tokens.indices) {
+            val n = tokens[i].trimEnd('.', ',', '%').toIntOrNull() ?: continue
+            if (n !in 0..100) continue
+            if (tokens.getOrNull(i - 1) in setOf("to", "at", "of", "volume", "sound", "audio", "brightness")) {
+                return n
+            }
+        }
         return null
     }
 

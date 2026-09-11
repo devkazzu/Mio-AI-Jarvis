@@ -99,8 +99,9 @@ class TtsStateMachineTest {
     fun `stale chunk ids from a superseded utterance are ignored`() {
         val m = TtsStateMachine()
         val p = Probe()
-        m.begin(listOf("old"), p.onDone, p.onError).superseded?.deliver()
-        m.begin(listOf("new"), p.onDone, p.onError)
+        m.begin(listOf("old"), p.onDone, p.onError)
+        // The SECOND begin supersedes "old" — deliver that completion.
+        m.begin(listOf("new"), p.onDone, p.onError).superseded?.deliver()
         assertNull(m.onLastChunkDone("old"))
         assertNull(m.onEngineError("old", "late"))
         assertEquals(TtsState.SPEAKING, m.state)

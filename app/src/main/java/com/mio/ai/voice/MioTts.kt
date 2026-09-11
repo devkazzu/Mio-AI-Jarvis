@@ -344,8 +344,9 @@ class MioTts(private val context: Context) {
 /** Strip anything that sounds bad spoken aloud. */
 internal fun sanitize(text: String): String = text
     .replace(Regex("[*_`#]"), "")
-    .replace("·", ", ")
+    .replace("·", ",")
     .replace(Regex("\\s+"), " ")
+    .replace(" ,", ",")
     .trim()
     .take(1500)
 
