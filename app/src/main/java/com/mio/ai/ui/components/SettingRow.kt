@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -37,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -153,7 +156,7 @@ fun StepperRow(
             valueText,
             style = MioTypography.bodyLarge,
             color = mio.textPrimary,
-            modifier = Modifier.width(72.dp),
+            modifier = Modifier.widthIn(min = 56.dp),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         IconButton(onClick = onPlus, enabled = plusEnabled) {
@@ -162,7 +165,12 @@ fun StepperRow(
     }
 }
 
-/** Labeled text field used across Settings. */
+/**
+ * Labeled text field used across Settings.
+ * [error] shows an inline message (danger) and error border; [trailingIcon]
+ * hosts affordances like the password show/hide toggle; [imeAction]/[onIme]
+ * drive keyboard Next/Done behavior for fast, accessible form flow.
+ */
 @Composable
 fun MioTextField(
     value: String,
@@ -172,6 +180,10 @@ fun MioTextField(
     placeholder: String = "",
     password: Boolean = false,
     keyboard: KeyboardType = KeyboardType.Text,
+    imeAction: ImeAction = ImeAction.Done,
+    onIme: () -> Unit = {},
+    error: String? = null,
+    trailingIcon: @Composable (() -> Unit)? = null,
 ) {
     val mio = mioColors
     val dim = mioDimens
@@ -184,7 +196,19 @@ fun MioTextField(
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text(placeholder, style = MioTypography.bodyMedium, color = mio.textMuted) },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboard),
+            isError = error != null,
+            trailingIcon = trailingIcon,
+            supportingText = error?.let { msg ->
+                { Text(msg, style = MioTypography.bodyMedium, color = mio.danger) }
+            },
+            keyboardOptions = KeyboardOptions(keyboardType = keyboard, imeAction = imeAction),
+            keyboardActions = KeyboardActions(
+                onNext = { onIme() },
+                onDone = { onIme() },
+                onGo = { onIme() },
+                onSearch = { onIme() },
+                onSend = { onIme() },
+            ),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
             textStyle = MioTypography.bodyLarge,
             colors = OutlinedTextFieldDefaults.colors(
@@ -193,6 +217,9 @@ fun MioTextField(
                 focusedBorderColor = mio.accent,
                 unfocusedBorderColor = mio.line,
                 cursorColor = mio.accent,
+                errorBorderColor = mio.danger,
+                errorCursorColor = mio.danger,
+                errorSupportingTextColor = mio.danger,
             ),
         )
     }

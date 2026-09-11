@@ -1,5 +1,8 @@
 package com.mio.ai.ui.screens
 
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,10 +13,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -26,13 +38,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mio.ai.BuildConfig
 import com.mio.ai.MioApplication
+import com.mio.ai.core.ai.EndpointValidation
+import com.mio.ai.core.ai.OpenAiCompatibleClient
+import com.mio.ai.core.ai.PingResult
 import com.mio.ai.data.AnimationPref
 import com.mio.ai.data.ListeningMode
 import com.mio.ai.data.MioThemePref
@@ -51,14 +74,28 @@ import com.mio.ai.ui.components.SegmentedOptions
 import com.mio.ai.ui.components.SettingRow
 import com.mio.ai.ui.components.StepperRow
 import com.mio.ai.ui.theme.CaptionMono
+import com.mio.ai.ui.theme.MioTypography
 import com.mio.ai.ui.theme.mioColors
 import com.mio.ai.ui.theme.mioDimens
+import com.mio.ai.ui.theme.mioMotion
 import com.mio.ai.ui.vm.AssistantViewModel
 import kotlinx.coroutines.launch
+
+/** Cloud-brain connection state shown by the “Test connection” check. */
+private sealed interface ConnState {
+    data class Offline(val detail: String) : ConnState
+    data object Connecting : ConnState
+    data class Connected(val detail: String) : ConnState
+    data class Failed(val detail: String) : ConnState
+}
 
 /**
  * Polished settings: AI · Voice · Automation · Appearance · Privacy · About.
  * Every control writes through to DataStore (and encrypted storage for keys).
+ *
+ * Security notes for the AI section: the stored API key is never displayed
+ * (the field only accepts a replacement), travels only in the request
+ * header, and clearing it asks for confirmation first.
  */
 @Composable
 fun SettingsScreen(
@@ -73,6 +110,7 @@ fun SettingsScreen(
     val ctx = LocalContext.current
     val app = remember(ctx) { ctx.applicationContext as MioApplication }
     val scope = rememberCoroutineScope()
+    val focus = LocalFocusManager.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val cloudLabel by vm.cloudLabel.collectAsStateWithLifecycle()
     val voices by vm.ttsVoices.collectAsStateWithLifecycle()
@@ -83,9 +121,101 @@ fun SettingsScreen(
     var url by remember(settings.aiBaseUrlOverride) { mutableStateOf(settings.aiBaseUrlOverride) }
     var model by remember(settings.aiModelOverride) { mutableStateOf(settings.aiModelOverride) }
     var apiKey by remember { mutableStateOf("") }
+    var keyVisible by remember { mutableStateOf(false) }
     var keyTick by remember { mutableIntStateOf(0) }
+    var urlError by remember { mutableStateOf<String?>(null) }
+    var modelError by remember { mutableStateOf<String?>(null) }
+    var connState by remember {
+        mutableStateOf<ConnState>(ConnState.Offline("Not tested — tap TEST CONNECTION to verify."))
+    }
+    var testing by remember { mutableStateOf(false) }
+    var showClearKeyDialog by remember { mutableStateOf(false) }
     var nickname by remember(settings.nickname) { mutableStateOf(settings.nickname.orEmpty()) }
     val keyStored = remember(keyTick) { app.secureKeys.hasApiKey() }
+
+    // Cloud off always reads Offline (unless a test is mid-flight).
+    val effectiveConn = if (!settings.useCloudAi && connState !is ConnState.Connecting) {
+        ConnState.Offline("Cloud brain is off — Mio runs 100% on-device.")
+    } else {
+        connState
+    }
+
+    fun runConnectionTest() {
+        val urlErr = EndpointValidation.baseUrlError(url)
+        val modelErr = EndpointValidation.modelError(model)
+        urlError = urlErr
+        modelError = modelErr
+        if (urlErr != null || modelErr != null) return
+        val base = url.trim().ifBlank { settings.aiBaseUrlOverride.ifBlank { BuildConfig.MIO_AI_BASE_URL } }
+        if (base.isBlank()) {
+            connState = ConnState.Offline("No endpoint configured — Mio runs fully offline.")
+            return
+        }
+        scope.launch {
+            testing = true
+            connState = ConnState.Connecting
+            // Typed key wins so users can verify before saving; else stored, else developer key.
+            val mdl = model.trim().ifBlank { settings.aiModelOverride.ifBlank { BuildConfig.MIO_AI_MODEL } }
+            val key = if (apiKey.isNotBlank()) {
+                apiKey
+            } else {
+                app.secureKeys.getApiKey().ifBlank { BuildConfig.MIO_AI_API_KEY }
+            }
+            connState = try {
+                when (val r = OpenAiCompatibleClient(base, key, mdl).ping()) {
+                    is PingResult.Ok -> ConnState.Connected(r.detail)
+                    is PingResult.Fail -> ConnState.Failed(r.detail)
+                }
+            } catch (e: Exception) {
+                ConnState.Failed("Test failed (${e.message?.take(120) ?: "unknown error"}).")
+            }
+            testing = false
+        }
+    }
+
+    fun saveEndpoint() {
+        val urlErr = EndpointValidation.baseUrlError(url)
+        val modelErr = EndpointValidation.modelError(model)
+        urlError = urlErr
+        modelError = modelErr
+        if (urlErr == null && modelErr == null) {
+            scope.launch { app.settingsRepo.setAiEndpoint(url, model) }
+        }
+    }
+
+    if (showClearKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearKeyDialog = false },
+            title = { Text("Clear API key?", style = MioTypography.titleLarge, color = mio.textPrimary) },
+            text = {
+                Text(
+                    "Mio will forget the stored key. The cloud brain falls back to the developer key, " +
+                        "if one is configured, otherwise it stays offline. Offline commands keep working.",
+                    style = MioTypography.bodyMedium,
+                    color = mio.textSecondary,
+                )
+            },
+            confirmButton = {
+                SecondaryButton(
+                    "Clear key",
+                    {
+                        scope.launch {
+                            app.secureKeys.clearApiKey()
+                            apiKey = ""
+                            keyVisible = false
+                            keyTick++
+                            connState = ConnState.Offline("Key cleared — tap TEST CONNECTION to verify.")
+                        }
+                        showClearKeyDialog = false
+                    },
+                    destructive = true, compact = true,
+                )
+            },
+            dismissButton = {
+                SecondaryButton("Keep", { showClearKeyDialog = false }, compact = true)
+            },
+        )
+    }
 
     Box(Modifier.fillMaxSize()) {
         HudBackground()
@@ -116,27 +246,87 @@ fun SettingsScreen(
                         scope.launch { app.settingsRepo.setUseCloudAi(it) }
                     }
                 }
-                MioTextField(value = url, onChange = { url = it }, label = "Base URL", placeholder = "https://api.openai.com/v1")
-                MioTextField(value = model, onChange = { model = it }, label = "Model", placeholder = "gpt-4o-mini")
                 MioTextField(
-                    value = apiKey, onChange = { apiKey = it },
-                    label = "API key ${if (keyStored) "(stored)" else "(not set)"}",
-                    placeholder = "sk-…", password = true, keyboard = KeyboardType.Password,
+                    value = url,
+                    onChange = {
+                        url = it
+                        if (urlError != null) urlError = EndpointValidation.baseUrlError(it)
+                    },
+                    label = "Base URL",
+                    placeholder = "https://api.openai.com/v1",
+                    keyboard = KeyboardType.Uri,
+                    imeAction = ImeAction.Next,
+                    onIme = { focus.moveFocus(FocusDirection.Down) },
+                    error = urlError,
+                )
+                MioTextField(
+                    value = model,
+                    onChange = {
+                        model = it
+                        if (modelError != null) modelError = EndpointValidation.modelError(it)
+                    },
+                    label = "Model",
+                    placeholder = "gpt-4o-mini",
+                    imeAction = ImeAction.Next,
+                    onIme = { focus.moveFocus(FocusDirection.Down) },
+                    error = modelError,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(dim.md)) {
-                    PrimaryButton("Save", { scope.launch { app.settingsRepo.setAiEndpoint(url, model) } }, Modifier.weight(1f), compact = true)
+                    PrimaryButton("Save", ::saveEndpoint, Modifier.weight(1f), compact = true)
                     SecondaryButton(
-                        if (apiKey.isNotBlank()) "Set key" else "Clear key",
-                        {
-                            scope.launch {
-                                if (apiKey.isNotBlank()) app.secureKeys.setApiKey(apiKey) else app.secureKeys.clearApiKey()
-                                apiKey = ""
-                                keyTick++
-                            }
-                        },
-                        Modifier.weight(1f), compact = true,
+                        "Test connection",
+                        ::runConnectionTest,
+                        Modifier.weight(1f),
+                        enabled = settings.useCloudAi && !testing,
+                        compact = true,
                     )
                 }
+                MioTextField(
+                    value = apiKey,
+                    onChange = { apiKey = it },
+                    label = "API key · ${if (keyStored) "stored" else "not set"}",
+                    placeholder = if (keyStored) "Enter a new key to replace it" else "sk-…",
+                    password = !keyVisible,
+                    keyboard = KeyboardType.Password,
+                    imeAction = ImeAction.Done,
+                    onIme = { focus.clearFocus() },
+                    trailingIcon = {
+                        IconButton(onClick = { keyVisible = !keyVisible }) {
+                            Icon(
+                                if (keyVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (keyVisible) "Hide API key" else "Show API key",
+                                tint = mio.textSecondary,
+                            )
+                        }
+                    },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(dim.md)) {
+                    PrimaryButton(
+                        "Save key",
+                        {
+                            scope.launch {
+                                app.secureKeys.setApiKey(apiKey)
+                                apiKey = ""
+                                keyVisible = false
+                                keyTick++
+                                connState = ConnState.Offline("Key updated — tap TEST CONNECTION to verify.")
+                            }
+                        },
+                        Modifier.weight(1f),
+                        enabled = apiKey.isNotBlank(),
+                        compact = true,
+                    )
+                    SecondaryButton(
+                        "Clear key",
+                        { showClearKeyDialog = true },
+                        Modifier.weight(1f),
+                        enabled = keyStored,
+                        destructive = true,
+                        compact = true,
+                    )
+                }
+                InfoNote("Your key is stored encrypted on this device — and is never shown again.")
+                ConnectionStatusRow(state = effectiveConn)
                 SettingRow(title = "Response style", desc = "How much Mio says.") {
                     Spacer(Modifier.width(1.dp))
                 }
@@ -187,6 +377,7 @@ fun SettingsScreen(
                     onValueChangeFinished = { scope.launch { app.settingsRepo.setSpeechRate(rate) } },
                     valueRange = 0.5f..2.0f, steps = 5,
                     colors = SliderDefaults.colors(thumbColor = mio.accent, activeTrackColor = mio.accent),
+                    modifier = Modifier.semantics { contentDescription = "Speech speed, ${"%.2f".format(rate)} times" },
                 )
                 var pitch by remember(settings.speechPitch) { mutableFloatStateOf(settings.speechPitch) }
                 Text("PITCH · ${"%.2f".format(pitch)}×", style = CaptionMono, color = mio.textSecondary)
@@ -195,6 +386,7 @@ fun SettingsScreen(
                     onValueChangeFinished = { scope.launch { app.settingsRepo.setSpeechPitch(pitch) } },
                     valueRange = 0.5f..2.0f, steps = 5,
                     colors = SliderDefaults.colors(thumbColor = mio.accent, activeTrackColor = mio.accent),
+                    modifier = Modifier.semantics { contentDescription = "Voice pitch, ${"%.2f".format(pitch)} times" },
                 )
                 SettingRow(
                     title = "Spoken replies",
@@ -271,6 +463,7 @@ fun SettingsScreen(
                     onValueChangeFinished = { scope.launch { app.settingsRepo.setAccentIntensity(accent) } },
                     valueRange = 0.3f..1.0f,
                     colors = SliderDefaults.colors(thumbColor = mio.accent, activeTrackColor = mio.accent),
+                    modifier = Modifier.semantics { contentDescription = "Accent intensity, ${(accent * 100).toInt()} percent" },
                 )
                 SettingRow(title = "Animation", desc = "Reduced keeps fades; Off is fully static.") {
                     Spacer(Modifier.width(1.dp))
@@ -285,7 +478,11 @@ fun SettingsScreen(
                     onSelect = { scope.launch { app.settingsRepo.setAnimation(it) } },
                 )
                 InfoNote("Your system animator-scale accessibility setting always wins when set to off.")
-                MioTextField(value = nickname, onChange = { nickname = it }, label = "Your name", placeholder = "What Mio calls you")
+                MioTextField(
+                    value = nickname, onChange = { nickname = it },
+                    label = "Your name", placeholder = "What Mio calls you",
+                    onIme = { focus.clearFocus() },
+                )
                 PrimaryButton(
                     "Save name",
                     { scope.launch { app.settingsRepo.setNickname(nickname.ifBlank { null }) } },
@@ -321,6 +518,50 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(dim.xl))
             }
+        }
+    }
+}
+
+/**
+ * Cloud-brain connection readout: Offline · Connecting · Connected · Failed.
+ * Text always accompanies the dot (never color-only); state changes are
+ * announced to screen readers via a polite live region.
+ */
+@Composable
+private fun ConnectionStatusRow(state: ConnState, modifier: Modifier = Modifier) {
+    val mio = mioColors
+    val dim = mioDimens
+    val motion = mioMotion
+    val (label, color, detail) = when (state) {
+        is ConnState.Offline -> Triple("Offline", mio.textMuted, state.detail)
+        ConnState.Connecting -> Triple("Connecting", mio.accent, "Checking your endpoint…")
+        is ConnState.Connected -> Triple("Connected", mio.success, state.detail)
+        is ConnState.Failed -> Triple("Failed", mio.danger, state.detail)
+    }
+    val dotColor by animateColorAsState(
+        targetValue = color,
+        animationSpec = tween(if (motion.transitions) dim.durationNormal else 0),
+        label = "conn",
+    )
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(dim.sm),
+    ) {
+        if (state is ConnState.Connecting && motion.transitions) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = mio.accent,
+            )
+        } else {
+            Box(Modifier.size(10.dp).background(dotColor, CircleShape))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(label.uppercase(), style = CaptionMono, color = dotColor)
+            Text(detail, style = MioTypography.bodyMedium, color = mio.textSecondary)
         }
     }
 }

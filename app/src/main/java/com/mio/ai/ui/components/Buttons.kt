@@ -7,7 +7,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,7 +30,7 @@ import com.mio.ai.ui.theme.mioDimens
 import com.mio.ai.ui.theme.mioMotion
 
 /**
- * Primary action: filled accent, 52dp target, subtle press-scale + optional
+ * Primary action: filled accent, 52dp minimum target (grows with font scale),
  * loading spinner (loading → progress → success handled by callers).
  */
 @Composable
@@ -58,7 +58,7 @@ fun PrimaryButton(
         enabled = enabled && !loading,
         interactionSource = interaction,
         modifier = modifier
-            .height(52.dp)
+            .heightIn(min = 52.dp)
             .graphicsLayer(scaleX = scale, scaleY = scale),
         shape = RoundedCornerShape(dim.radiusMd),
         contentPadding = PaddingValues(horizontal = dim.lg),
@@ -85,7 +85,7 @@ fun PrimaryButton(
 }
 
 /**
- * Secondary action: outlined, same 52dp rhythm. [destructive] tints it red
+ * Secondary action: outlined, same 52dp-minimum rhythm. [destructive] tints red
  * (Stop / Clear / Delete).
  */
 @Composable
@@ -114,7 +114,7 @@ fun SecondaryButton(
         enabled = enabled,
         interactionSource = interaction,
         modifier = modifier
-            .height(52.dp)
+            .heightIn(min = 52.dp)
             .graphicsLayer(scaleX = scale, scaleY = scale),
         shape = RoundedCornerShape(dim.radiusMd),
         contentPadding = PaddingValues(horizontal = dim.lg),

@@ -21,6 +21,19 @@ interface AiClient {
         systemPrompt: String,
         maxTokens: Int = 450,
     ): String
+
+    /**
+     * Lightweight reachability check (`GET /models`) for the Settings
+     * “Test connection” button. Never throws — failures become
+     * [PingResult.Fail] with a user-facing message.
+     */
+    suspend fun ping(): PingResult
+}
+
+/** Result of [AiClient.ping]. [detail] is user-facing and never carries credentials. */
+sealed interface PingResult {
+    data class Ok(val detail: String) : PingResult
+    data class Fail(val detail: String) : PingResult
 }
 
 data class ChatMessage(val role: Role, val content: String) {
